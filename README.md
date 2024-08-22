@@ -1,27 +1,12 @@
-# ROS2 Example Package
+# Path Planning
 
-[![Build Test](https://github.com/DHBW-Smart-Rollerz/ros2_exaple_package/actions/workflows/build-test.yaml/badge.svg)](https://github.com/DHBW-Smart-Rollerz/ros2_exaple_package/actions/workflows/build-test.yaml)
+[![Build Test](https://github.com/DHBW-Smart-Rollerz/pathplanning/actions/workflows/build-test.yaml/badge.svg)](https://github.com/DHBW-Smart-Rollerz/pathplanning/actions/workflows/build-test.yaml)
 
-This repository contains an example package for ros2 (python).
+This repository contains the pathplanning package and messages for the Smarty project.
 
 ## Usage
 
-This repository can be used as template. Simply select this repo when creating a new repository under template.
-
-Alternatively, you can create python ros packages with:
-
-```bash
-# If not already created
-mkdir -p ~/ros2_ws/src
-cd ~/ros2_ws/src
-
-# Create package
-ros2 pkg create my_package --build-type ament_python --dependencies rclpy
-
-# Build
-cd ~/ros2_ws/src
-colcon build --symlink-install --packages-select my_package
-```
+TODO: Write
 
 ## Structure
 

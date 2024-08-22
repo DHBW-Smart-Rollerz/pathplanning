@@ -15,22 +15,49 @@ jobs:
     steps:
     - name: Checkout code
       uses: actions/checkout@v3
+      with:
+        path: src
 
     - name: Setup ROS 2 Jazzy
       uses: ros-tooling/setup-ros@v0.7
       with:
         required-ros-distributions: jazzy
 
-    - name: Install dependencies
-      run: sudo apt-get update && sudo apt-get install -y python3-colcon-common-extensions
+    - name: Install colcon and vcs
+      run: |
+        sudo apt-get update && sudo apt-get install -y python3-colcon-common-extensions python3-vcstool
+
+    - name: Import repositories
+      run: |
+        vcs import src < dependencies.repos
+
+    - name: Setup Python environment
+      run: |
+        python3 -m venv .venv
+        . .venv/bin/activate
+        pip install --upgrade pip
+
+    - name: Install Python requirements
+      run: |
+        . .venv/bin/activate
+        find src -name 'requirements.txt' -exec pip install -r {} \;
+
+    - name: Install ROS dependencies
+      run: |
+        . .venv/bin/activate
+        rosdep update
+        rosdep install --from-paths src --ignore-src --rosdistro jazzy -y
 
     - name: Build packages
       run: |
+        . .venv/bin/activate
         colcon build --event-handlers console_cohesion+
 
     - name: Run tests
       run: |
         echo "Skipping tests for now"
+        # Uncomment the lines below to enable testing
+        # . .venv/bin/activate
         # colcon test --event-handlers console_cohesion+
         # colcon test-result --verbose
 

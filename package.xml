@@ -1,14 +1,22 @@
 <?xml version="1.0"?>
 <?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
 <package format="3">
-  <name>ros2_example_package</name>
-  <version>0.0.0</version>
-  <description>TODO: Package description</description>
-  <maintainer email="info@dhbw-smartrollerz.org">Smart Rollerz</maintainer>
-  <license>TODO: License declaration</license>
-  
-  <depend>rclpy</depend>
+  <name>pathplanning</name>
+  <version>1.0.0</version>
+  <description>Pathplanning for the smarty pipeline</description>
+  <maintainer email="75214791+Super-T02@users.noreply.github.com">Tom Freudenmann</maintainer>
+  <license>MIT</license>
 
+  <!-- ROS Dependencies -->
+  <depend>rclpy</depend>
+  <depend>std_msgs</depend>
+  <depend>sensor_msgs</depend>
+  <depend>cv_bridge</depend>
+
+  <!-- Custom Dependencies -->
+  <depend>lane_msgs</depend>
+
+  <!-- Test Dependencies -->
   <test_depend>ament_copyright</test_depend>
   <test_depend>ament_flake8</test_depend>
   <test_depend>ament_pep257</test_depend>
