@@ -29,8 +29,7 @@ jobs:
 
     - name: Import repositories
       run: |
-        vcs import src < dependencies.repos
-
+        vcs import src < $GITHUB_WORKSPACE/src/pathplanning/dependencies.repos
     - name: Setup Python environment
       run: |
         python3 -m venv .venv
