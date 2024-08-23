@@ -13,3 +13,5 @@ jobs:
     uses: DHBW-Smart-Rollerz/smarty_workspace/.github/workflows/base.yaml@jazzy
     with:
       branch_pattern: 'jazzy*'
+      type: 'pyhton'
+      package_name: 'pathplanning'
