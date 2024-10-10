@@ -5,7 +5,7 @@ pathplanning_node:
   ros__parameters:
     # subscriber
     lane_points_subscriber: '/lane_detection/result'
-    image_subscriber: '/camera/undistorted'
+    image_subscriber: '/camera/birds_eye'
     state_machine_subscriber: '/state_machine/debug'
     state_machine_lane_subscriber: '/rightLane'
     remote_state_subscriber: '/remoteState'
@@ -19,4 +19,5 @@ pathplanning_node:
     ref_point_publisher: '/controller/ref_pose'         # maybe change to pathplanning
 
     # additional params
-    trj_look_forward: 375      # adapt to speed and runtime
+    trj_look_forward: 100      # adapt to speed and runtime
+    active: True
