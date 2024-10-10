@@ -6,32 +6,74 @@ This repository contains the pathplanning package and messages for the Smarty pr
 
 ## Usage
 
-TODO: Write
+To use this package, clone the repository into your workspace and build it with colcon.
 
-## Structure
+```bash
+cd $ROS2_SMARTY_WORKSPACE_DIR/src
+git clone https://github.com/DHBW-Smart-Rollerz/pathplanning.git
+cd ..
+colcon build --symlink-install --packages-select pathplanning
+```
 
-- `config/`: All configurations (most of the time yaml files)
-- `launch/`: Contains all launch files. Launch files can start multiple nodes with yaml-configurations
-- `models/`: Contains all models (optional) and only necessary for machine learning nodes
-- `resource/`: Contains the package name (required to build with colcon)
-- `ros2_example_package`: Contains all nodes and sources for the ros package
-- `test/`: Contains all tests
-- `package.xml`: Contains metadata about the package
-- `setup.py`: Used for Python package configuration
-- `setup.cfg`: Additional configuration for the package
-- `requirements.txt`: Python dependencies
+After building the package, you can source the workspace and run the nodes.
 
-## Contributing
+```bash
+source install/setup.bash
+ros2 launch pathplanning pathplanning.launch.py
+```
 
-Thank you for considering contributing to this repository! Here are a few guidelines to get you started:
+## Launch Arguments
 
-1. Fork the repository and clone it locally.
-2. Create a new branch for your contribution.
-3. Make your changes and ensure they are properly tested.
-4. Commit your changes and push them to your forked repository.
-5. Submit a pull request with a clear description of your changes.
+The launch file accepts the following arguments:
 
-We appreciate your contributions and look forward to reviewing them!
+- `debug`: Enable debug mode (default: false)
+- `params_file`: Path to the ROS parameters file (default: ros_params.yaml in the config folder)
+
+## ROS Parameters
+
+The package uses the following ROS parameters:
+
+### Subscribers
+
+- **lane_points_subscriber**: Topic to subscribe to for receiving lane detection results.
+  - Default: `'/lane_detection/result'`
+
+- **image_subscriber**: Topic to subscribe to for receiving bird's eye view images.
+  - Default: `'/camera/birds_eye'`
+
+- **state_machine_subscriber**: Topic to subscribe to for receiving state machine debug information.
+  - Default: `'/state_machine/debug'`
+
+- **state_machine_lane_subscriber**: Topic to subscribe to for receiving right lane information from the state machine.
+  - Default: `'/rightLane'`
+
+- **remote_state_subscriber**: Topic to subscribe to for receiving remote state information.
+  - Default: `'/remoteState'`
+
+- **targetSteeringAngle_pub**: Topic to publish the target steering angle.
+  - Default: `'/targetSteeringAngle'`
+
+### Publishers
+
+- **image_debug_publisher**: Topic to publish debug images for path planning.
+  - Default: `'/pathplanning/debug_image'`
+
+- **path_planning_right_publisher**: Topic to publish the right lane coefficients for path planning.
+  - Default: `'/pathplanning/right_lane_coefficients'`
+
+- **path_planning_left_publisher**: Topic to publish the left lane coefficients for path planning.
+  - Default: `'/pathplanning/left_lane_coefficients'`
+
+- **ref_point_publisher**: Topic to publish the reference pose for the controller.
+  - Default: `'/controller/ref_pose'`
+
+### Additional Parameters
+
+- **trj_look_forward**: Number of points to look forward in the trajectory. This parameter should be adapted to speed and runtime.
+  - Default: `100`
+
+- **active**: Boolean flag to indicate whether the node is active.
+  - Default: `True`
 
 ## License
 
