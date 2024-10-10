@@ -309,7 +309,6 @@ class PathplanningNode(Node):
 
         debug_image = self.cv_bridge.imgmsg_to_cv2(image_msg, desired_encoding="8UC1")
         debug_image = cv2.cvtColor(debug_image, cv2.COLOR_GRAY2RGB)
-        # debug_image = cv2.convertScaleAbs(debug_image, alpha=4, beta=0.5)
 
         if (
             is_active
@@ -317,20 +316,21 @@ class PathplanningNode(Node):
             and self.serialized_lane_result
             and debug
         ):
-            # debug_image = self.birds_eyed.transform_img(debug_image.copy())
-
             for lane_type in ["left", "center", "right"]:
-                for coord in self.coord_trans.world_to_bird(
-                    self.serialized_lane_result[lane_type]["points"]
-                ).astype(int):
-                    color = (
-                        (255, 0, 0)
-                        if lane_type == "left"
-                        else (0, 255, 0)
-                        if lane_type == "center"
-                        else (0, 0, 255)
-                    )
-                    debug_image = cv2.circle(debug_image, coord, 6, color, -1)
+                try:
+                    for coord in self.coord_trans.world_to_bird(
+                        self.serialized_lane_result[lane_type]["points"]
+                    ).astype(int):
+                        color = (
+                            (255, 0, 0)
+                            if lane_type == "left"
+                            else (0, 255, 0)
+                            if lane_type == "center"
+                            else (0, 0, 255)
+                        )
+                        debug_image = cv2.circle(debug_image, coord, 6, color, -1)
+                except Exception as e:
+                    self._logger.error(f"Error drawing lane points: {e}")
 
             for lane_coefficients in [
                 self.right_lane_coefficients,
