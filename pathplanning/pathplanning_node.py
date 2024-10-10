@@ -6,6 +6,7 @@ import time
 import cv2
 import cv_bridge
 import geometry_msgs.msg
+import numpy as np
 import rclpy
 import rclpy.qos
 import sensor_msgs.msg
@@ -55,7 +56,9 @@ class PathplanningNode(Node):
 
         self.cv_bridge = cv_bridge.CvBridge()
         self.coord_trans = CoordinateTransform()
-        self.myController = PPController(self.get_parameter, debug=self._debug)
+        self.myController = PPController(
+            self.get_parameter, debug=self._debug, logger=self.get_logger()
+        )
         self.current_lane = False
 
         # Initialize transformation classes for debug image
@@ -67,7 +70,9 @@ class PathplanningNode(Node):
         self.init_ros()
 
         # Log initialization
-        self.get_logger().info(f"Pathplanning Node initialized [debug={self._debug}]")
+        self.get_logger().info(
+            f"Pathplanning Node initialized [debug={self._debug}, trj_look_forward={self.get_parameter('trj_look_forward').value}]"
+        )
 
     def init_param(self):
         """Initialize parameters for the path planning node."""
@@ -99,6 +104,7 @@ class PathplanningNode(Node):
                 ("trj_look_forward", 100),
             ],
         )
+
         self._debug = self.get_parameter("debug").value
 
     def init_ros(self):
@@ -177,11 +183,11 @@ class PathplanningNode(Node):
         self.lane_subscriber = self.create_subscription(
             LaneDetectionResult,
             self.get_parameter("lane_points_subscriber").value,
-            self.serilized_points,
+            self.serialized_points,
             qos_profile=profile,
         )
 
-    def serilized_points(self, LaneDetectionResult: LaneDetectionResult):
+    def serialized_points(self, LaneDetectionResult: LaneDetectionResult):
         """
         Serialize lane detection results and perform further processing.
 
@@ -203,8 +209,7 @@ class PathplanningNode(Node):
 
             for lane_type in ["left", "center", "right"]:
                 points = self.serialized_lane_result[lane_type]["points"]
-                b_points = self.coord_trans.world_to_bird(points).astype(int)
-                setattr(self, f"{lane_type}_coord", b_points)
+                setattr(self, f"{lane_type}_coord", points)
 
             (
                 self.left_lane_coefficients,
@@ -221,7 +226,11 @@ class PathplanningNode(Node):
             ):
                 if self.get_parameter("active").value and any(lane_coefficients):
                     getattr(self, f"path_planning_{lane_type}_publisher").publish(
-                        geometry_msgs.msg.Vector3(*self.right_lane_coefficients)
+                        geometry_msgs.msg.Vector3(
+                            x=lane_coefficients[0],
+                            y=lane_coefficients[1],
+                            z=lane_coefficients[2],
+                        )
                     )
             if (
                 self.get_parameter("active").value
@@ -254,9 +263,9 @@ class PathplanningNode(Node):
                 lane_coefficients
             )
             self.drive_point_ruling = (int(ref_x), int(ref_y))
-
-            ref_x, ref_y, _ = self.coord_trans.bird_to_world([[ref_x, ref_y]])[0]
-            print(f"x={ref_y / 1000}, y={ - ref_x  / 1000}, theta={theta}")
+            print(f"ref_x: {ref_x}, ref_y: {ref_y}, theta: {theta}")
+            # ref_x, ref_y, _ = self.coord_trans.bird_to_world([[ref_x, ref_y]])[0]
+            print(f"x={ref_x / 1000}, y={ ref_y  / 1000}, theta={theta}")
 
             # new test
 
@@ -277,11 +286,11 @@ class PathplanningNode(Node):
             print(f"{self.flag_box_temp} {self.counter_flag}")
 
             if not self.flag_box_temp:
-                self.targetSteeringAngle_publisher.publish(std_msgs.msg.Int16(0))
+                self.targetSteeringAngle_publisher.publish(std_msgs.msg.Int16(data=0))
 
             else:
                 self.ref_point_publisher.publish(
-                    geometry_msgs.msg.Vector3(y=-ref_x / 1000, x=ref_y / 1000, z=theta)
+                    geometry_msgs.msg.Vector3(y=ref_y / 1000, x=ref_x / 1000, z=theta)
                 )
 
     def debug_image(self, image_msg: sensor_msgs.msg.Image):
@@ -300,7 +309,7 @@ class PathplanningNode(Node):
 
         debug_image = self.cv_bridge.imgmsg_to_cv2(image_msg, desired_encoding="8UC1")
         debug_image = cv2.cvtColor(debug_image, cv2.COLOR_GRAY2RGB)
-        debug_image = cv2.convertScaleAbs(debug_image, alpha=4, beta=0.5)
+        # debug_image = cv2.convertScaleAbs(debug_image, alpha=4, beta=0.5)
 
         if (
             is_active
@@ -308,9 +317,7 @@ class PathplanningNode(Node):
             and self.serialized_lane_result
             and debug
         ):
-            debug_image = self.birds_eyed.undistorted_to_birdseyedview(
-                debug_image.copy()
-            )
+            # debug_image = self.birds_eyed.transform_img(debug_image.copy())
 
             for lane_type in ["left", "center", "right"]:
                 for coord in self.coord_trans.world_to_bird(
@@ -329,7 +336,9 @@ class PathplanningNode(Node):
                 self.right_lane_coefficients,
                 self.left_lane_coefficients,
             ]:
-                for coord in self.myController.draw_trajectory(lane_coefficients):
+                for coord in self.myController.draw_trajectory(
+                    lane_coefficients, lambda x: self.coord_trans.world_to_bird(x)
+                ):
                     cv2.circle(
                         debug_image,
                         (int(coord[0]), int(coord[1])),
@@ -339,7 +348,9 @@ class PathplanningNode(Node):
                     )
 
             if self.drive_point_ruling is not None:
-                cv2.circle(debug_image, self.drive_point_ruling, 5, (255, 255, 255), -1)
+                p = np.array([[*self.drive_point_ruling, 0]])
+                p = self.coord_trans.world_to_bird(p)[0]
+                cv2.circle(debug_image, (int(p[0]), int(p[1])), 5, (255, 255, 255), -1)
 
             self.image_debug_publisher.publish(
                 self.cv_bridge.cv2_to_imgmsg(debug_image, encoding="rgb8")

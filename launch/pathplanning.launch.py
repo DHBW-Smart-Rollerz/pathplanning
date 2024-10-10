@@ -20,21 +20,24 @@ def generate_launch_description():
     )
 
     # Define the path to the YAML configuration file
-    config_file = ParameterFile(
-        os.path.join(
+    params_file_arg = DeclareLaunchArgument(
+        "params_file",
+        default_value=os.path.join(
             get_package_share_directory("pathplanning"), "config", "ros_params.yaml"
-        )
+        ),
+        description="Path to the configuration file",
     )
 
+    config_file = LaunchConfiguration("params_file")
     # Define the node
     pathplanning_node = Node(
         package="pathplanning",
         executable="pathplanning_node",
-        namespace="pathplanning",
+        namespace="",
         name="pathplanning_node",
         output="screen",
         parameters=[config_file, {"debug": LaunchConfiguration("debug")}],
     )
 
     # Create and return the launch description
-    return LaunchDescription([debug_arg, pathplanning_node])
+    return LaunchDescription([params_file_arg, debug_arg, pathplanning_node])
