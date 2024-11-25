@@ -30,7 +30,7 @@ def generate_launch_description():
     pathplanning_node = Node(
         package="pathplanning",
         executable="pathplanning_node",
-        namespace="pathplanning",
+        namespace="",
         name="pathplanning_node",
         output="screen",
         parameters=[config_file, {"debug": LaunchConfiguration("debug")}],
