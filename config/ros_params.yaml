@@ -5,7 +5,7 @@ pathplanning_node:
   ros__parameters:
     # subscriber
     lane_points_subscriber: '/lane_detection/lane'
-    image_subscriber: '/camera/image/undistorted'
+    image_subscriber: '/camera/image/bev'
     state_machine_subscriber: '/state_machine/debug' # Todo update
     state_machine_lane_subscriber: '/rightLane' # Todo update
     remote_state_subscriber: '/remoteState' # Todo update
@@ -14,9 +14,10 @@ pathplanning_node:
 
     # publisher
     image_debug_publisher: '/path_planning/debug/image'
-    path_planning_right_publisher: '/path_planning/target/left'
-    path_planning_left_publisher: '/path_planning/target/right'
+    path_planning_right_publisher: '/path_planning/target/right'
+    path_planning_left_publisher: '/path_planning/target/left'
     ref_point_publisher: '/path_planning/target/pose'         # maybe change to pathplanning
 
     # additional params
-    trj_look_forward: 375      # adapt to speed and runtime
+    trj_look_forward: 100      # adapt to speed and runtime
+    active: True

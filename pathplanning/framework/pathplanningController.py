@@ -9,13 +9,16 @@ import numpy as np
 class PPController:
     """Path Planning Controller class."""
 
-    def __init__(self, parameter_callback: callable, debug: bool = False):
+    def __init__(
+        self, parameter_callback: callable, debug: bool = False, logger: callable = None
+    ):
         """
         Initialize PPController with parameter object and trajectory look forward.
 
         Args:
             parameter_callback (callable): Get the parameter to the corresponding key.
             debug (bool): Enable debug mode.
+            logger (callable): Logger object.
         """
         self.prev_lane_coefficients = {"left": [], "right": []}
         self.prev_left_lane_coeff = []
@@ -23,6 +26,7 @@ class PPController:
         self.remote_state = 1
         self.parameter_callback = parameter_callback
         self._debug = debug
+        self.logger = logger
 
     def start_main_process(
         self, left_lane_points: list, center_lane_points: list, right_lane_points: list
@@ -38,13 +42,18 @@ class PPController:
         Returns:
             tuple: Tuple containing left lane coefficients and right lane coefficients.
         """
-        left_lane_coefficients = self._get_lane_coefficients(
-            left_lane_points, center_lane_points, True
-        )
-        right_lane_coefficients = self._get_lane_coefficients(
-            center_lane_points, right_lane_points, False
-        )
-        return left_lane_coefficients, right_lane_coefficients
+        try:
+            left_lane_coefficients = self._get_lane_coefficients(
+                left_lane_points, center_lane_points, True
+            )
+            right_lane_coefficients = self._get_lane_coefficients(
+                center_lane_points, right_lane_points, False
+            )
+            return left_lane_coefficients, right_lane_coefficients
+        except ValueError as e:
+            if self.logger is not None:
+                self.logger.error(f"Error in start_main_process: {e}")
+            return [0, 0, 0], [0, 0, 0]
 
     def reset_RC_MODE(self, state):
         """
@@ -96,7 +105,7 @@ class PPController:
         if not x or not y:
             raise ValueError("Both x and y vectors must be non-empty for polyfit.")
 
-        return np.polyfit(y, x, 2)
+        return np.polyfit(x, y, 2)
 
     def _filter_unique(self, arr):
         """
@@ -193,7 +202,7 @@ class PPController:
 
         return coefficients
 
-    def draw_trajectory(self, coefficients):
+    def draw_trajectory(self, coefficients, transform_func=None):
         """
         Draws a trajectory based on the provided polynomial coefficients.
 
@@ -205,10 +214,12 @@ class PPController:
         """
         p = np.poly1d(coefficients)  # Polynom erstellen
 
-        y_fit = np.linspace(200, 630, 100)  # Werte für das Polynom
-        x_fit = p(y_fit)
-
-        return list(zip(x_fit, y_fit))
+        x_fit = np.linspace(0, 630, 100)  # Werte für das Polynom
+        y_fit = p(x_fit)
+        cords = np.array(list(zip(x_fit, y_fit, [0] * len(x_fit))))
+        if transform_func is not None:
+            cords = transform_func(cords)
+        return cords
 
     def ref_point_controller(self, coefficients):
         """
@@ -221,8 +232,8 @@ class PPController:
             tuple: Tuple containing (x, y, theta) representing the reference point coordinates and angle.
         """
         p = np.poly1d(coefficients)
-        y = self.parameter_callback("trj_look_forward").value
-        x = p(y)
+        x = self.parameter_callback("trj_look_forward").value
+        y = p(x)
         theta = -1 * math.atan(
             -2 * coefficients[0] * (y / 1000) - coefficients[1]
         )  # Tom fragen
