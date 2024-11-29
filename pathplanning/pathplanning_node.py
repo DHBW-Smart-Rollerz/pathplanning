@@ -81,23 +81,23 @@ class PathplanningNode(Node):
             namespace="",
             parameters=[
                 # Subscribers
-                ("lane_points_subscriber", "/lane_detection/result"),
-                ("image_subscriber", "/camera/undistorted"),
+                ("lane_points_subscriber", "/lane_detection/lane"),
+                ("image_subscriber", "/camera/image/bev"),
                 ("state_machine_subscriber", "/state_machine/debug"),
                 ("state_machine_lane_subscriber", "/rightLane"),
                 ("remote_state_subscriber", "/remoteState"),
                 # Publishers
-                ("targetSteeringAngle_pub", "/targetSteeringAngle"),
+                ("targetSteeringAngle_pub", "/control/steering_angle/target"),
                 (
                     "path_planning_left_publisher",
-                    "/pathplanning/left_lane_coefficients",
+                    "/path_planning/target/left",
                 ),
                 (
                     "path_planning_right_publisher",
-                    "/pathplanning/right_lane_coefficients",
+                    "/path_planning/target/right",
                 ),
-                ("ref_point_publisher", "/controller/ref_pose"),
-                ("image_debug_publisher", "/pathplanning/debug_image"),
+                ("ref_point_publisher", "/path_planning/target/pose"),
+                ("image_debug_publisher", "/path_planning/debug/image"),
                 # Other
                 ("debug", False),
                 ("active", False),
