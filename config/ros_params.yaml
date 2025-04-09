@@ -7,7 +7,7 @@ pathplanning_node:
     lane_points_subscriber: '/lane_detection/lane'
     image_subscriber: '/camera/image/bev'
     state_machine_subscriber: '/state_machine/debug' # Todo update
-    state_machine_lane_subscriber: '/rightLane' # Todo update
+    state_machine_lane_subscriber: '/state_machine/lane/goal'
     remote_state_subscriber: '/remoteState' # Todo update
     targetSteeringAngle_pub: '/control/steering_angle/target'
 
