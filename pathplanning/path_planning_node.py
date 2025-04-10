@@ -119,7 +119,7 @@ class PathPlanningNode(Node):
         self.add_post_set_parameters_callback(self.post_parameter_change_callback)
 
     def reset(self) -> None:
-        """Rset the node."""
+        """Reset the node."""
         self.get_logger().info("🔄 Resetting the node...")
         self.myController.reset()
         self.set_parameters([Parameter(name="state", value=NodeState.ACTIVE.value)])
