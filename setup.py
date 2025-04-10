@@ -25,12 +25,12 @@ setup(
     zip_safe=True,
     maintainer="Smart Rollerz",
     maintainer_email="info@dhbw-smartrollerz.org",
-    description="Pathplanning for the smarty pipeline",
+    description="Path planning for the smarty pipeline",
     license="MIT",
     tests_require=["pytest"],
     entry_points={
         "console_scripts": [
-            f"pathplanning_node = {package_name}.pathplanning_node:main",
+            f"path_planning_node = {package_name}.path_planning_node:main",
         ],
     },
 )

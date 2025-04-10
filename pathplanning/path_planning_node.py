@@ -90,32 +90,31 @@ class PathPlanningNode(Node):
     def init_param(self):
         """Initialize parameters for the path planning node."""
         # Declare ros parameters
-        self.declare_parameters(
-            namespace="",
-            parameters=[
-                # Subscribers
-                ("lane_points_subscriber", "/lane_detection/lane"),
-                ("image_subscriber", "/camera/image/bev"),
-                ("remote_state_subscriber", "/remoteState"),
-                # Publishers
-                ("targetSteeringAngle_pub", "/control/steering_angle/target"),
-                (
-                    "path_planning_left_publisher",
-                    "/path_planning/target/left",
-                ),
-                (
-                    "path_planning_right_publisher",
-                    "/path_planning/target/right",
-                ),
-                ("ref_point_publisher", "/path_planning/target/pose"),
-                ("image_debug_publisher", "/path_planning/debug/image"),
-                # StateMachine
-                ("trj_look_forward", 100),  # TODO: Remove
-                ("debug", False),
-                ("state", NodeState.INACTIVE.value),
-                ("goal_lane", GoalLane.RIGHT.value),
-            ],
+        # Subscribers
+        self.declare_parameter("lane_points_subscriber", "/lane_detection/lane")
+        self.declare_parameter("image_subscriber", "/camera/image/bev")
+        self.declare_parameter("remote_state_subscriber", "/remoteState")
+
+        # Publishers
+        self.declare_parameter(
+            "targetSteeringAngle_pub", "/control/steering_angle/target"
         )
+        self.declare_parameter(
+            "path_planning_left_publisher", "/path_planning/target/left"
+        )
+        self.declare_parameter(
+            "path_planning_right_publisher", "/path_planning/target/right"
+        )
+        self.declare_parameter("ref_point_publisher", "/path_planning/target/pose")
+        self.declare_parameter("image_debug_publisher", "/path_planning/debug/image")
+
+        # StateMachine
+        self.declare_parameter("trj_look_forward", 100)  # TODO: Remove
+        self.declare_parameter("debug", False)
+        self.declare_parameter("state", NodeState.INACTIVE.value)
+        self.declare_parameter("goal_lane", GoalLane.RIGHT.value)
+
+        # Callbacks
         self.add_on_set_parameters_callback(self.parameter_change_callback)
         self.add_post_set_parameters_callback(self.post_parameter_change_callback)
 
