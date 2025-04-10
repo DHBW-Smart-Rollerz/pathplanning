@@ -1,6 +1,7 @@
-# Copyright (c) 2024 Smart Rollerz e.V.
+# Copyright (c) 2025 Smart Rollerz e.V.
 # All rights reserved.
 
+import threading
 import time
 
 import cv2
@@ -16,7 +17,10 @@ from camera_preprocessing.transformation.birds_eyed_view import Birdseye
 from camera_preprocessing.transformation.coordinate_transform import CoordinateTransform
 from camera_preprocessing.transformation.distortion import Distortion
 from lane_msgs.msg import Lane, LaneDetectionResult
+from rcl_interfaces.msg import SetParametersResult
 from rclpy.node import Node
+from rclpy.parameter import Parameter
+from smarty_enums.state_machine import GoalLane, NodeState
 
 from pathplanning.framework.pathplanningController import PPController
 
@@ -38,28 +42,25 @@ def serialize_lane(Lane: Lane):
     }
 
 
-class PathplanningNode(Node):
+class PathPlanningNode(Node):
     """ROS Node for path planning."""
 
     def __init__(self):
         """Initialize the Pathplanning Node."""
         super().__init__("pathplanning_node")
-        self.drive_point_ruling = None
-        self.current_state = 2  # explained on our NAS (2 = driveF, 101 = overtake)
         self.package_path = get_package_share_directory("pathplanning")
         self.times = []
-        self.flag_box_temp = False
-        self.counter_flag = 0
 
         # Load parameters
         self.init_param()
 
+        # Setup Framework & Cord Transformation
         self.cv_bridge = cv_bridge.CvBridge()
         self.coord_trans = CoordinateTransform()
         self.myController = PPController(
             self.get_parameter, debug=self._debug, logger=self.get_logger()
         )
-        self.current_lane = False
+        self.drive_point_ruling = None
 
         # Initialize transformation classes for debug image
         if self._debug:
@@ -74,6 +75,18 @@ class PathplanningNode(Node):
             f"Pathplanning Node initialized [debug={self._debug}, trj_look_forward={self.get_parameter('trj_look_forward').value}]"
         )
 
+    @property
+    def _debug(self) -> bool:
+        return self.get_parameter("debug").value
+
+    @property
+    def _state(self) -> NodeState:
+        return NodeState(self.get_parameter("state").value)
+
+    @property
+    def _goal_lane(self) -> GoalLane:
+        return GoalLane(self.get_parameter_or("goal_lane", GoalLane.RIGHT).value)
+
     def init_param(self):
         """Initialize parameters for the path planning node."""
         # Declare ros parameters
@@ -83,8 +96,6 @@ class PathplanningNode(Node):
                 # Subscribers
                 ("lane_points_subscriber", "/lane_detection/lane"),
                 ("image_subscriber", "/camera/image/bev"),
-                ("state_machine_subscriber", "/state_machine/debug"),
-                ("state_machine_lane_subscriber", "/rightLane"),
                 ("remote_state_subscriber", "/remoteState"),
                 # Publishers
                 ("targetSteeringAngle_pub", "/control/steering_angle/target"),
@@ -98,14 +109,47 @@ class PathplanningNode(Node):
                 ),
                 ("ref_point_publisher", "/path_planning/target/pose"),
                 ("image_debug_publisher", "/path_planning/debug/image"),
-                # Other
+                # StateMachine
+                ("trj_look_forward", 100),  # TODO: Remove
                 ("debug", False),
-                ("active", False),
-                ("trj_look_forward", 100),
+                ("state", NodeState.INACTIVE.value),
+                ("goal_lane", GoalLane.RIGHT.value),
             ],
         )
+        self.add_on_set_parameters_callback(self.parameter_change_callback)
+        self.add_post_set_parameters_callback(self.post_parameter_change_callback)
 
-        self._debug = self.get_parameter("debug").value
+    def reset(self) -> None:
+        """Rset the node."""
+        self.get_logger().info("🔄 Resetting the node...")
+        self.myController.reset()
+        self.set_parameters([Parameter(name="state", value=NodeState.ACTIVE.value)])
+        self.get_logger().info("✅ Node reset performed. Continue with ACTIVE state ...")
+
+    def parameter_change_callback(self, params: list[Parameter]) -> SetParametersResult:
+        """
+        Callback for the parameter server.
+
+        Arguments:
+            params -- changed params
+        """
+        for param in params:
+            if self._debug:
+                self.get_logger().info(
+                    f"Parameter '{param.name}' changed to {param.value}"
+                )
+        return SetParametersResult(successful=True)
+
+    def post_parameter_change_callback(self, params: list[Parameter]) -> None:
+        """
+        Post callback for the parameter server.
+
+        Arguments:
+            params -- Parameter list
+        """
+        for param in params:
+            if param.name == "state" and param.value == NodeState.RESET.value:
+                self.reset()
 
     def init_ros(self):
         """
@@ -116,6 +160,8 @@ class PathplanningNode(Node):
         Sets up publishers for left and right path planning points, reference points, and lane detection results.
         """
         profile = rclpy.qos.QoSProfile(depth=1)
+
+        ### Debug ###
 
         if self._debug:
             self.image_subscriber = self.create_subscription(
@@ -131,36 +177,13 @@ class PathplanningNode(Node):
                 qos_profile=profile,
             )
 
-        self.state_machine_subscriber = self.create_subscription(
-            std_msgs.msg.UInt32,
-            self.get_parameter("state_machine_subscriber").value,
-            self.set_state,
-            qos_profile=profile,
-        )
+        ### Publishers ###
 
         self.targetSteeringAngle_publisher = self.create_publisher(
             std_msgs.msg.Int16,
             self.get_parameter("targetSteeringAngle_pub").value,
             qos_profile=profile,
         )
-
-        # test lane switch
-
-        # 1 = left / 0 = right
-        self.state_machine_lane_subscriber = self.create_subscription(
-            std_msgs.msg.UInt8,
-            self.get_parameter("state_machine_lane_subscriber").value,
-            self.set_state_lane,
-            qos_profile=profile,
-        )
-
-        self.remote_state_subscriber = self.create_subscription(
-            std_msgs.msg.UInt8,
-            self.get_parameter("remote_state_subscriber").value,
-            self.new_remote_state,
-            qos_profile=profile,
-        )
-        # end test
 
         self.path_planning_left_publisher = self.create_publisher(
             geometry_msgs.msg.Vector3,
@@ -177,6 +200,15 @@ class PathplanningNode(Node):
         self.ref_point_publisher = self.create_publisher(
             geometry_msgs.msg.Vector3,
             self.get_parameter("ref_point_publisher").value,
+            qos_profile=profile,
+        )
+
+        ### Subscribers ###
+
+        self.remote_state_subscriber = self.create_subscription(
+            std_msgs.msg.UInt8,
+            self.get_parameter("remote_state_subscriber").value,
+            self.new_remote_state,
             qos_profile=profile,
         )
 
@@ -200,7 +232,7 @@ class PathplanningNode(Node):
         self.center_coord = []
         self.right_coord = []
 
-        if self.get_parameter("active").value:
+        if self._state == NodeState.ACTIVE:
             self.serialized_lane_result = {
                 "left": serialize_lane(LaneDetectionResult.left),
                 "center": serialize_lane(LaneDetectionResult.center),
@@ -224,7 +256,7 @@ class PathplanningNode(Node):
                 ["left", "right"],
                 [self.left_lane_coefficients, self.right_lane_coefficients],
             ):
-                if self.get_parameter("active").value and any(lane_coefficients):
+                if self._state == NodeState.ACTIVE and any(lane_coefficients):
                     getattr(self, f"path_planning_{lane_type}_publisher").publish(
                         geometry_msgs.msg.Vector3(
                             x=lane_coefficients[0],
@@ -233,7 +265,7 @@ class PathplanningNode(Node):
                         )
                     )
             if (
-                self.get_parameter("active").value
+                self._state == NodeState.ACTIVE
                 and any(self.left_lane_coefficients)
                 and any(self.right_lane_coefficients)
             ):
@@ -248,13 +280,14 @@ class PathplanningNode(Node):
 
     def calculate_ref_point(self):
         """Calculate the reference point for the vehicle's trajectory based on its current state."""
-        # TODO: Adapt if overtake is implemented
-        if self.current_state <= 1:
+        if self._state != NodeState.ACTIVE:
+            if self._debug:
+                self.get_logger().info("Node not active, skipping ...")
             return
 
         lane_coefficients = (
             self.left_lane_coefficients
-            if self.current_lane
+            if self._goal_lane == GoalLane.LEFT
             else self.right_lane_coefficients
         )
 
@@ -267,31 +300,13 @@ class PathplanningNode(Node):
             # ref_x, ref_y, _ = self.coord_trans.bird_to_world([[ref_x, ref_y]])[0]
             print(f"x={ref_x / 1000}, y={ ref_y  / 1000}, theta={theta}")
 
-            # new test
-
             if theta <= 0.3:
                 theta = theta / 4
                 print(theta)
 
-            #
-
-            if (not self.flag_box_temp) and (
-                self.current_state == 11 or self.current_state == 2
-            ):
-                self.counter_flag += 1
-
-            if self.counter_flag >= 30:
-                self.flag_box_temp = True
-
-            print(f"{self.flag_box_temp} {self.counter_flag}")
-
-            if not self.flag_box_temp:
-                self.targetSteeringAngle_publisher.publish(std_msgs.msg.Int16(data=0))
-
-            else:
-                self.ref_point_publisher.publish(
-                    geometry_msgs.msg.Vector3(y=ref_y / 1000, x=ref_x / 1000, z=theta)
-                )
+            self.ref_point_publisher.publish(
+                geometry_msgs.msg.Vector3(y=ref_y / 1000, x=ref_x / 1000, z=theta)
+            )
 
     def debug_image(self, image_msg: sensor_msgs.msg.Image):
         """
@@ -301,10 +316,11 @@ class PathplanningNode(Node):
             image_msg (sensor_msgs.msg.Image): The image message to be processed.
         """
         # Load parameters (to be persistent)
-        is_active = self.get_parameter("active").value
+        is_active = self._state == NodeState.ACTIVE
         debug = self._debug
 
         if not is_active:
+            self.get_logger().info("Node inactive debug image not rendered")
             return
 
         debug_image = self.cv_bridge.imgmsg_to_cv2(image_msg, desired_encoding="8UC1")
@@ -356,29 +372,6 @@ class PathplanningNode(Node):
                 self.cv_bridge.cv2_to_imgmsg(debug_image, encoding="rgb8")
             )
 
-    def set_state(self, state: std_msgs.msg.UInt32):
-        """
-        Sets the current state of the system.
-
-        Args:
-            state (std_msgs.msg.UInt32): The state to be set.
-        """
-        if self._debug:
-            print(f"new state: {state.data}")
-        self.current_state = state.data
-
-    def set_state_lane(self, new_lane: std_msgs.msg.UInt8):
-        """
-        Sets the current lane of the system.
-
-        Arguments:
-            new_lane -- The new lane to be set.
-        """
-        if new_lane.data == 0:
-            self.current_lane = True
-        else:
-            self.current_lane = False
-
     def new_remote_state(self, remote_state: std_msgs.msg.UInt8):
         """
         Sets the remote state of the system.
@@ -397,7 +390,7 @@ def main(args=None):
         args -- Arguments for the Node (default: {None})
     """
     rclpy.init(args=args)
-    node = PathplanningNode()
+    node = PathPlanningNode()
 
     try:
         rclpy.spin(node)
