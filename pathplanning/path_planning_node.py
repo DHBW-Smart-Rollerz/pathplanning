@@ -1,7 +1,6 @@
 # Copyright (c) 2025 Smart Rollerz e.V.
 # All rights reserved.
 
-import threading
 import time
 
 import cv2
@@ -9,18 +8,14 @@ import cv_bridge
 import geometry_msgs.msg
 import numpy as np
 import rclpy
-import rclpy.qos
 import sensor_msgs.msg
 import std_msgs.msg
-from ament_index_python.packages import get_package_share_directory
 from camera_preprocessing.transformation.birds_eyed_view import Birdseye
 from camera_preprocessing.transformation.coordinate_transform import CoordinateTransform
 from camera_preprocessing.transformation.distortion import Distortion
 from lane_msgs.msg import Lane, LaneDetectionResult
-from rcl_interfaces.msg import SetParametersResult
-from rclpy.node import Node
-from rclpy.parameter import Parameter
-from smarty_enums.state_machine import GoalLane, NodeState
+from smarty_utils.enums import GoalLane, NodeState
+from smarty_utils.smarty_node import SmartyNode
 
 from pathplanning.framework.pathplanningController import PPController
 
@@ -42,17 +37,43 @@ def serialize_lane(Lane: Lane):
     }
 
 
-class PathPlanningNode(Node):
+class PathPlanningNode(SmartyNode):
     """ROS Node for path planning."""
 
     def __init__(self):
         """Initialize the Pathplanning Node."""
-        super().__init__("pathplanning_node")
-        self.package_path = get_package_share_directory("pathplanning")
+        super().__init__(
+            "path_planning_node",
+            "pathplanning",
+            node_parameters={
+                # Subscriber topics
+                "lane_points_subscriber": "/lane_detection/lane",
+                "image_subscriber": "/camera/image/bev",
+                "remote_state_subscriber": "/remoteState",
+                # Publisher topics
+                "targetSteeringAngle_pub": "/control/steering_angle/target",
+                "path_planning_left_publisher": "/path_planning/target/left",
+                "path_planning_right_publisher": "/path_planning/target/right",
+                "ref_point_publisher": "/path_planning/target/pose",
+                "image_debug_publisher": "/path_planning/debug/image",
+                # Parameters
+                "goal_lane": GoalLane.RIGHT.value,
+                "trj_look_forward": 100,
+            },
+            subscribed_topics={
+                "lane_points_subscriber": (LaneDetectionResult, self.serialized_points),
+                "image_subscriber": (sensor_msgs.msg.Image, self.debug_image),
+                "remote_state_subscriber": (std_msgs.msg.UInt8, self.new_remote_state),
+            },
+            published_topics={
+                "targetSteeringAngle_pub": std_msgs.msg.Int16,
+                "path_planning_left_publisher": geometry_msgs.msg.Vector3,
+                "path_planning_right_publisher": geometry_msgs.msg.Vector3,
+                "ref_point_publisher": geometry_msgs.msg.Vector3,
+                "image_debug_publisher": sensor_msgs.msg.Image,
+            },
+        )
         self.times = []
-
-        # Load parameters
-        self.init_param()
 
         # Setup Framework & Cord Transformation
         self.cv_bridge = cv_bridge.CvBridge()
@@ -67,156 +88,18 @@ class PathPlanningNode(Node):
             self.distortion = Distortion(self.coord_trans._calib)
             self.birds_eyed = Birdseye(self.coord_trans._calib, self.distortion)
 
-        # Initialize ROS
-        self.init_ros()
-
         # Log initialization
         self.get_logger().info(
-            f"Pathplanning Node initialized [debug={self._debug}, trj_look_forward={self.get_parameter('trj_look_forward').value}]"
+            f"Path planning Node initialized [debug={self._debug}, trj_look_forward={self.get_parameter('trj_look_forward').value}]"
         )
-
-    @property
-    def _debug(self) -> bool:
-        return self.get_parameter("debug").value
-
-    @property
-    def _state(self) -> NodeState:
-        return NodeState(self.get_parameter("state").value)
 
     @property
     def _goal_lane(self) -> GoalLane:
         return GoalLane(self.get_parameter_or("goal_lane", GoalLane.RIGHT).value)
 
-    def init_param(self):
-        """Initialize parameters for the path planning node."""
-        # Declare ros parameters
-        # Subscribers
-        self.declare_parameter("lane_points_subscriber", "/lane_detection/lane")
-        self.declare_parameter("image_subscriber", "/camera/image/bev")
-        self.declare_parameter("remote_state_subscriber", "/remoteState")
-
-        # Publishers
-        self.declare_parameter(
-            "targetSteeringAngle_pub", "/control/steering_angle/target"
-        )
-        self.declare_parameter(
-            "path_planning_left_publisher", "/path_planning/target/left"
-        )
-        self.declare_parameter(
-            "path_planning_right_publisher", "/path_planning/target/right"
-        )
-        self.declare_parameter("ref_point_publisher", "/path_planning/target/pose")
-        self.declare_parameter("image_debug_publisher", "/path_planning/debug/image")
-
-        # StateMachine
-        self.declare_parameter("trj_look_forward", 100)  # TODO: Remove
-        self.declare_parameter("debug", False)
-        self.declare_parameter("state", NodeState.INACTIVE.value)
-        self.declare_parameter("goal_lane", GoalLane.RIGHT.value)
-
-        # Callbacks
-        self.add_on_set_parameters_callback(self.parameter_change_callback)
-        self.add_post_set_parameters_callback(self.post_parameter_change_callback)
-
-    def reset(self) -> None:
+    def _reset(self) -> None:
         """Reset the node."""
-        self.get_logger().info("🔄 Resetting the node...")
         self.myController.reset()
-        self.set_parameters([Parameter(name="state", value=NodeState.ACTIVE.value)])
-        self.get_logger().info("✅ Node reset performed. Continue with ACTIVE state ...")
-
-    def parameter_change_callback(self, params: list[Parameter]) -> SetParametersResult:
-        """
-        Callback for the parameter server.
-
-        Arguments:
-            params -- changed params
-        """
-        for param in params:
-            if self._debug:
-                self.get_logger().info(
-                    f"Parameter '{param.name}' changed to {param.value}"
-                )
-        return SetParametersResult(successful=True)
-
-    def post_parameter_change_callback(self, params: list[Parameter]) -> None:
-        """
-        Post callback for the parameter server.
-
-        Arguments:
-            params -- Parameter list
-        """
-        for param in params:
-            if param.name == "state" and param.value == NodeState.RESET.value:
-                self.reset()
-
-    def init_ros(self):
-        """
-        Initializes ROS subscribers and publishers for various topics based on parameters.
-
-        If debug mode is enabled, subscribes to an image topic and sets up a publisher for debug images.
-        Subscribes to a state machine topic to set the state.
-        Sets up publishers for left and right path planning points, reference points, and lane detection results.
-        """
-        profile = rclpy.qos.QoSProfile(depth=1)
-
-        ### Debug ###
-
-        if self._debug:
-            self.image_subscriber = self.create_subscription(
-                sensor_msgs.msg.Image,
-                self.get_parameter("image_subscriber").value,
-                self.debug_image,
-                qos_profile=profile,
-            )
-
-            self.image_debug_publisher = self.create_publisher(
-                sensor_msgs.msg.Image,
-                self.get_parameter("image_debug_publisher").value,
-                qos_profile=profile,
-            )
-
-        ### Publishers ###
-
-        self.targetSteeringAngle_publisher = self.create_publisher(
-            std_msgs.msg.Int16,
-            self.get_parameter("targetSteeringAngle_pub").value,
-            qos_profile=profile,
-        )
-
-        self.path_planning_left_publisher = self.create_publisher(
-            geometry_msgs.msg.Vector3,
-            self.get_parameter("path_planning_left_publisher").value,
-            qos_profile=profile,
-        )
-
-        self.path_planning_right_publisher = self.create_publisher(
-            geometry_msgs.msg.Vector3,
-            self.get_parameter("path_planning_right_publisher").value,
-            qos_profile=profile,
-        )
-
-        self.ref_point_publisher = self.create_publisher(
-            geometry_msgs.msg.Vector3,
-            self.get_parameter("ref_point_publisher").value,
-            qos_profile=profile,
-        )
-
-        ### Subscribers ###
-
-        self.remote_state_subscriber = self.create_subscription(
-            std_msgs.msg.UInt8,
-            self.get_parameter("remote_state_subscriber").value,
-            self.new_remote_state,
-            qos_profile=profile,
-        )
-
-        self.lane_subscriber = self.create_subscription(
-            LaneDetectionResult,
-            self.get_parameter("lane_points_subscriber").value,
-            self.serialized_points,
-            qos_profile=profile,
-        )
 
     def serialized_points(self, LaneDetectionResult: LaneDetectionResult):
         """
