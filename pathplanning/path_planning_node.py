@@ -74,7 +74,7 @@ class PathPlanningNode(SmartyNode):
                     None,
                 ),
                 "goal_lane_subscriber": (
-                    Lane,
+                    std_msgs.msg.String,
                     lambda msg: setattr(self, "_goal_lane", Location(msg.data)),
                     None,
                 ),
