@@ -14,8 +14,9 @@ from camera_preprocessing.transformation.birds_eyed_view import Birdseye
 from camera_preprocessing.transformation.coordinate_transform import CoordinateTransform
 from camera_preprocessing.transformation.distortion import Distortion
 from lane_msgs.msg import Lane, LaneDetectionResult
-from smarty_utils.enums import GoalLane, NodeState
+from smarty_utils.enums import Lane, NodeState
 from smarty_utils.smarty_node import SmartyNode
+from state_machine.utils import Location
 
 from pathplanning.framework.pathplanningController import PPController
 
@@ -50,6 +51,7 @@ class PathPlanningNode(SmartyNode):
                 "lane_points_subscriber": "/lane_detection/lane",
                 "image_subscriber": "/camera/image/bev",
                 "remote_state_subscriber": "/remoteState",
+                "goal_lane_subscriber": "/state_machine/goal_lane",
                 # Publisher topics
                 "targetSteeringAngle_pub": "/control/steering_angle/target",
                 "path_planning_left_publisher": "/path_planning/target/left",
@@ -57,22 +59,35 @@ class PathPlanningNode(SmartyNode):
                 "ref_point_publisher": "/path_planning/target/pose",
                 "image_debug_publisher": "/path_planning/debug/image",
                 # Parameters
-                "goal_lane": GoalLane.RIGHT.value,
                 "trj_look_forward": 100,
             },
             subscribed_topics={
-                "lane_points_subscriber": (LaneDetectionResult, self.serialized_points),
-                "image_subscriber": (sensor_msgs.msg.Image, self.debug_image),
-                "remote_state_subscriber": (std_msgs.msg.UInt8, self.new_remote_state),
+                "lane_points_subscriber": (
+                    LaneDetectionResult,
+                    self.serialized_points,
+                    None,
+                ),
+                "image_subscriber": (sensor_msgs.msg.Image, self.debug_image, None),
+                "remote_state_subscriber": (
+                    std_msgs.msg.UInt8,
+                    self.new_remote_state,
+                    None,
+                ),
+                "goal_lane_subscriber": (
+                    Lane,
+                    lambda msg: setattr(self, "_goal_lane", Location(msg.data)),
+                    None,
+                ),
             },
             published_topics={
-                "targetSteeringAngle_pub": std_msgs.msg.Int16,
-                "path_planning_left_publisher": geometry_msgs.msg.Vector3,
-                "path_planning_right_publisher": geometry_msgs.msg.Vector3,
-                "ref_point_publisher": geometry_msgs.msg.Vector3,
-                "image_debug_publisher": sensor_msgs.msg.Image,
+                "targetSteeringAngle_pub": (std_msgs.msg.Int16, None),
+                "path_planning_left_publisher": (geometry_msgs.msg.Vector3, None),
+                "path_planning_right_publisher": (geometry_msgs.msg.Vector3, None),
+                "ref_point_publisher": (geometry_msgs.msg.Vector3, None),
+                "image_debug_publisher": (sensor_msgs.msg.Image, None),
             },
         )
+        self._goal_lane = Location.RIGHT
         self.times = []
 
         # Setup Framework & Cord Transformation
@@ -92,10 +107,6 @@ class PathPlanningNode(SmartyNode):
         self.get_logger().info(
             f"Path planning Node initialized [debug={self._debug}, trj_look_forward={self.get_parameter('trj_look_forward').value}]"
         )
-
-    @property
-    def _goal_lane(self) -> GoalLane:
-        return GoalLane(self.get_parameter_or("goal_lane", GoalLane.RIGHT).value)
 
     def _reset(self) -> None:
         """Reset the node."""
@@ -169,7 +180,7 @@ class PathPlanningNode(SmartyNode):
 
         lane_coefficients = (
             self.left_lane_coefficients
-            if self._goal_lane == GoalLane.LEFT
+            if self._goal_lane == Lane.LEFT
             else self.right_lane_coefficients
         )
 
