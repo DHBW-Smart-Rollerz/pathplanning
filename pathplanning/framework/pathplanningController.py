@@ -20,13 +20,17 @@ class PPController:
             debug (bool): Enable debug mode.
             logger (callable): Logger object.
         """
-        self.prev_lane_coefficients = {"left": [], "right": []}
-        self.prev_left_lane_coeff = []
-        self.prev_right_lane_coeff = []
+        self.reset()
         self.remote_state = 1
         self.parameter_callback = parameter_callback
         self._debug = debug
         self.logger = logger
+
+    def reset(self):
+        """Resets the coefficients."""
+        self.prev_lane_coefficients = {"left": [], "right": []}
+        self.prev_left_lane_coeff = []
+        self.prev_right_lane_coeff = []
 
     def start_main_process(
         self, left_lane_points: list, center_lane_points: list, right_lane_points: list

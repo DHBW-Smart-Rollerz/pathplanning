@@ -5,7 +5,6 @@ import os
 
 from ament_index_python import get_package_share_directory
 from launch_ros.actions import Node
-from launch_ros.parameter_descriptions import ParameterFile
 
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument
@@ -32,9 +31,9 @@ def generate_launch_description():
     # Define the node
     pathplanning_node = Node(
         package="pathplanning",
-        executable="pathplanning_node",
+        executable="path_planning_node",
         namespace="",
-        name="pathplanning_node",
+        name="path_planning_node",
         output="screen",
         parameters=[config_file, {"debug": LaunchConfiguration("debug")}],
     )
