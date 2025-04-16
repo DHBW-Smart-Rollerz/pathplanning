@@ -14,7 +14,7 @@ from camera_preprocessing.transformation.birds_eyed_view import Birdseye
 from camera_preprocessing.transformation.coordinate_transform import CoordinateTransform
 from camera_preprocessing.transformation.distortion import Distortion
 from lane_msgs.msg import Lane, LaneDetectionResult
-from smarty_utils.enums import Lane, NodeState
+from smarty_utils.enums import NodeState
 from smarty_utils.smarty_node import SmartyNode
 from state_machine.utils import Location
 
@@ -180,7 +180,7 @@ class PathPlanningNode(SmartyNode):
 
         lane_coefficients = (
             self.left_lane_coefficients
-            if self._goal_lane == Lane.LEFT
+            if self._goal_lane == Location.LEFT
             else self.right_lane_coefficients
         )
 
