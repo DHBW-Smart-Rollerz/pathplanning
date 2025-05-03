@@ -3,11 +3,13 @@
 
 import time
 
+import cv2
 import cv_bridge
 import geometry_msgs.msg
 import numpy as np
 import rclpy
 import rclpy.clock
+import rclpy.timer
 import sensor_msgs.msg
 import std_msgs.msg
 from camera_preprocessing.transformation.birds_eyed_view import Birdseye
@@ -71,7 +73,7 @@ class PathPlanningNode(SmartyNode):
             node_parameters={
                 # Subscriber topics
                 "lane_points_subscriber": "/lane_detection/lane",
-                "image_subscriber": "/camera/image/bev",
+                "image_subscriber": "/lane_detection/debug/image",
                 "remote_state_subscriber": "/remoteState",
                 "goal_lane_subscriber": "/state_machine/goal_lane",
                 "pose_estimation_subscriber": "/pose_estimation/pose",
@@ -101,7 +103,11 @@ class PathPlanningNode(SmartyNode):
                     self.timestamp_callback,
                     None,
                 ),
-                "image_subscriber": (sensor_msgs.msg.Image, lambda x: None, None),
+                "image_subscriber": (
+                    sensor_msgs.msg.Image,
+                    self.debug_image_callback,
+                    None,
+                ),
                 "remote_state_subscriber": (
                     std_msgs.msg.UInt8,
                     self.new_remote_state,
@@ -137,12 +143,13 @@ class PathPlanningNode(SmartyNode):
         self.abs_vec = np.zeros(3)  # x, y, psi
         self.est_vec = np.zeros(3)  # x, y, psi
         self._newest_lane_timestamp = ""
-        self.last_time = time.time()
 
         # Initialize transformation classes for debug image
         if self._debug:
+            self._debug_image = None
             self.distortion = Distortion(self.coord_trans._calib)
             self.birds_eyed = Birdseye(self.coord_trans._calib, self.distortion)
+            self.debug_timer = self.create_timer(0.02, self.debug_image)
 
         # Log initialization
         self.get_logger().info(
@@ -160,7 +167,7 @@ class PathPlanningNode(SmartyNode):
             [
                 pose_msg.position.x,
                 pose_msg.position.y,
-                pose_msg.position.z,
+                pose_msg.orientation.z,
             ]
         )
         if not self._newest_lane_timestamp:
@@ -308,6 +315,10 @@ class PathPlanningNode(SmartyNode):
 
     def _reset(self) -> None:
         """Reset the node."""
+        self._est_data: dict[str, EstimationData] = {}
+        self.abs_vec = np.zeros(3)  # x, y, psi
+        self.est_vec = np.zeros(3)  # x, y, psi
+        self._newest_lane_timestamp = ""
         self.myController.reset()
 
     def serialized_points(self, LaneDetectionResult: LaneDetectionResult):
@@ -319,11 +330,6 @@ class PathPlanningNode(SmartyNode):
         """
         if self._state != NodeState.ACTIVE:
             return
-
-        # Todo: Remove
-        if time.time() - self.last_time < 2:
-            return
-        self.last_time = time.time()
 
         s, ns = rclpy.clock.Clock().now().seconds_nanoseconds()
         ts = f"{s}.{ns}"
@@ -347,8 +353,6 @@ class PathPlanningNode(SmartyNode):
         self.center_coord = []
         self.right_coord = []
 
-        self._est_data[ts].lane_points = ""  # TODO
-
         # Get the driving lane
         (
             self.left_lane_coefficients,
@@ -366,20 +370,6 @@ class PathPlanningNode(SmartyNode):
         left_points = np.array(list(zip(x, y_left)))
         right_points = np.array(list(zip(x, y_right)))
         self._est_data[ts].lane_points = {"left": left_points, "right": right_points}
-
-        # Publish Lanes
-        # for lane_type, lane_coefficients in zip(
-        #     ["left", "right"],
-        #     [self.left_lane_coefficients, self.right_lane_coefficients],
-        # ):
-        #     if self._state == NodeState.ACTIVE and any(lane_coefficients):
-        #         getattr(self, f"path_planning_{lane_type}_publisher").publish(
-        #             geometry_msgs.msg.Vector3(
-        #                 x=lane_coefficients[0],
-        #                 y=lane_coefficients[1],
-        #                 z=lane_coefficients[2],
-        #             )
-        #         )
 
         # if (
         #     self._state == NodeState.ACTIVE
@@ -425,67 +415,69 @@ class PathPlanningNode(SmartyNode):
     #             geometry_msgs.msg.Vector3(y=ref_y / 1000, x=ref_x / 1000, z=theta)
     #         )
 
-    # def debug_image(self, image_msg: sensor_msgs.msg.Image):
-    #     """
-    #     Processes the image message for debugging purposes and publishes the resulting debug image.
+    def debug_image_callback(self, msg: sensor_msgs.msg.Image):
+        """
+        Callback function for the debug image.
 
-    #     Args:
-    #         image_msg (sensor_msgs.msg.Image): The image message to be processed.
-    #     """
-    #     # Load parameters (to be persistent)
-    #     is_active = self._state == NodeState.ACTIVE
-    #     debug = self._debug
+        Arguments:
+            msg -- The image message.
+        """
+        if not self._debug:
+            return
 
-    #     if not is_active:
-    #         self.get_logger().info("Node inactive debug image not rendered")
-    #         return
+        debug_image = self.cv_bridge.imgmsg_to_cv2(msg, desired_encoding="rgb8")
+        # debug_image = cv2.cvtColor(debug_image, cv2.COLOR_GRAY2RGB)
+        self._debug_image = debug_image
 
-    #     debug_image = self.cv_bridge.imgmsg_to_cv2(image_msg, desired_encoding="8UC1")
-    #     debug_image = cv2.cvtColor(debug_image, cv2.COLOR_GRAY2RGB)
+    def debug_image(self):
+        """Processes the image message for debugging purposes and publishes the resulting debug image."""
+        if not self._state == NodeState.ACTIVE or not self._debug:
+            return
 
-    #     if (
-    #         is_active
-    #         and hasattr(self, "serialized_lane_result")
-    #         and self.serialized_lane_result
-    #         and debug
-    #     ):
-    #         for lane_type in ["left", "center", "right"]:
-    #             try:
-    #                 for coord in self.coord_trans.world_to_bird(
-    #                     self.serialized_lane_result[lane_type]["points"]
-    #                 ).astype(int):
-    #                     color = (
-    #                         (255, 0, 0)
-    #                         if lane_type == "left"
-    #                         else (0, 255, 0) if lane_type == "center" else (0, 0, 255)
-    #                     )
-    #                     debug_image = cv2.circle(debug_image, coord, 6, color, -1)
-    #             except Exception as e:
-    #                 self._logger.error(f"Error drawing lane points: {e}")
+        # debug_image = self.cv_bridge.imgmsg_to_cv2(image_msg, desired_encoding="8UC1")
+        # debug_image = cv2.cvtColor(debug_image, cv2.COLOR_GRAY2RGB)
+        if (
+            self._newest_lane_timestamp not in self._est_data
+            or self._debug_image is None
+        ):
+            return
+        debug_image = self._debug_image.copy()
 
-    #         for lane_coefficients in [
-    #             self.right_lane_coefficients,
-    #             self.left_lane_coefficients,
-    #         ]:
-    #             for coord in self.myController.draw_trajectory(
-    #                 lane_coefficients, lambda x: self.coord_trans.world_to_bird(x)
-    #             ):
-    #                 cv2.circle(
-    #                     debug_image,
-    #                     (int(coord[0]), int(coord[1])),
-    #                     2,
-    #                     (255, 255, 0),
-    #                     -1,
-    #                 )
+        # Draw left and right lane points
+        left_points = self._est_data[self._newest_lane_timestamp].lane_points.get(
+            "left", []
+        )
+        right_points = self._est_data[self._newest_lane_timestamp].lane_points.get(
+            "right", []
+        )
 
-    #         if self.drive_point_ruling is not None:
-    #             p = np.array([[*self.drive_point_ruling, 0]])
-    #             p = self.coord_trans.world_to_bird(p)[0]
-    #             cv2.circle(debug_image, (int(p[0]), int(p[1])), 5, (255, 255, 255), -1)
+        # Add z=0 to the points
+        left_points = np.hstack((left_points, np.zeros((left_points.shape[0], 1))))
+        right_points = np.hstack((right_points, np.zeros((right_points.shape[0], 1))))
 
-    #         self.image_debug_publisher.publish(
-    #             self.cv_bridge.cv2_to_imgmsg(debug_image, encoding="rgb8")
-    #         )
+        image_left_points = self.coord_trans.world_to_camera(left_points)
+        image_right_points = self.coord_trans.world_to_camera(right_points)
+
+        for point in image_left_points:
+            cv2.circle(debug_image, (int(point[0]), int(point[1])), 5, (0, 255, 0), -1)
+        for point in image_right_points:
+            cv2.circle(debug_image, (int(point[0]), int(point[1])), 5, (255, 0, 0), -1)
+
+        # Draw the reference point
+        ref_point = self.est_vec[:2]
+        ref_point = np.array([[ref_point[0], ref_point[1], 0]])
+        image_ref = self.coord_trans.world_to_camera(ref_point)
+        cv2.circle(
+            debug_image,
+            (int(image_ref[0][0]), int(image_ref[0][1])),
+            5,
+            (0, 0, 255),
+            -1,
+        )
+
+        self.image_debug_publisher.publish(
+            self.cv_bridge.cv2_to_imgmsg(debug_image, encoding="rgb8")
+        )
 
     def new_remote_state(self, remote_state: std_msgs.msg.UInt8):
         """

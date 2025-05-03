@@ -5,7 +5,7 @@ path_planning_node:
   ros__parameters:
     # subscriber
     lane_points_subscriber: '/lane_detection/lane'
-    image_subscriber: '/camera/image/bev'
+    image_subscriber: '/lane_detection/debug/image'
     remote_state_subscriber: '/remoteState' # Todo update
     targetSteeringAngle_pub: '/control/steering_angle/target'
     pose_estimation_subscriber: '/pose_estimation/pose'
