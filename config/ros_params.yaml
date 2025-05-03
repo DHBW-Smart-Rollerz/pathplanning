@@ -8,6 +8,8 @@ path_planning_node:
     image_subscriber: '/camera/image/bev'
     remote_state_subscriber: '/remoteState' # Todo update
     targetSteeringAngle_pub: '/control/steering_angle/target'
+    pose_estimation_subscriber: '/pose_estimation/pose'
+    new_image_subscriber: '/lane_detection/new_image'
 
 
     # publisher

@@ -74,6 +74,8 @@ class PathPlanningNode(SmartyNode):
                 "image_subscriber": "/camera/image/bev",
                 "remote_state_subscriber": "/remoteState",
                 "goal_lane_subscriber": "/state_machine/goal_lane",
+                "pose_estimation_subscriber": "/pose_estimation/pose",
+                "new_image_subscriber": "/lane_detection/new_image",
                 # Publisher topics
                 "targetSteeringAngle_pub": "/control/steering_angle/target",
                 "path_planning_left_publisher": "/path_planning/target/left",
@@ -99,7 +101,7 @@ class PathPlanningNode(SmartyNode):
                     self.timestamp_callback,
                     None,
                 ),
-                "image_subscriber": (sensor_msgs.msg.Image, self.debug_image, None),
+                "image_subscriber": (sensor_msgs.msg.Image, lambda x: None, None),
                 "remote_state_subscriber": (
                     std_msgs.msg.UInt8,
                     self.new_remote_state,
@@ -134,6 +136,8 @@ class PathPlanningNode(SmartyNode):
         self._est_data: dict[str, EstimationData] = {}
         self.abs_vec = np.zeros(3)  # x, y, psi
         self.est_vec = np.zeros(3)  # x, y, psi
+        self._newest_lane_timestamp = ""
+        self.last_time = time.time()
 
         # Initialize transformation classes for debug image
         if self._debug:
@@ -159,15 +163,29 @@ class PathPlanningNode(SmartyNode):
                 pose_msg.position.z,
             ]
         )
+        if not self._newest_lane_timestamp:
+            self.get_logger().warn("No lane timestamp avaiable. Cannot estimate pose.")
+            return
 
-        self.est_vec = self.abs_vec - self.zero_vec
+        try:
+            self.est_vec = (
+                self.abs_vec - self._est_data[self._newest_lane_timestamp].world_pose
+            )
+        except KeyError:
+            self.get_logger().warn(
+                f"Timestamp {self._newest_lane_timestamp} not found in _est_data. Cannot estimate pose."
+            )
+            # Todo: Remove
+            raise KeyError(
+                f"Timestamp {self._newest_lane_timestamp} not found in _est_data."
+            )
 
         # Estimate new lane
-        self.estimate_and_publish_lane()
+        self.estimate_and_publish_lane(self._newest_lane_timestamp)
 
         if self._debug:
             self.get_logger().info(
-                f"Pose Estimation: x={self.abs_vec[0]}, y={self.abs_vec[1]}, psi={self.abs_vec[2]}"
+                f"Pose Estimation: x={self.est_vec[0]}, y={self.est_vec[1]}, psi={self.est_vec[2]}"
             )
 
     def timestamp_callback(self, msg: std_msgs.msg.Header) -> None:
@@ -175,7 +193,7 @@ class PathPlanningNode(SmartyNode):
         ts = f"{msg.stamp.sec}.{msg.stamp.nanosec}"
 
         if ts in self._est_data:
-            rclpy.get_logger().warn(
+            self.get_logger().warn(
                 f"Timestamp {ts} already exists in _est_data. Overwriting."
             )
         self._est_data[ts] = EstimationData(
@@ -184,6 +202,11 @@ class PathPlanningNode(SmartyNode):
             world_pose=self.abs_vec,
         )
 
+        print("-" * 20)
+        print(f"Timestamp: {ts}")
+        print(f"Estimation data: {self._est_data}")
+        print("-" * 20)
+
         self.shrink_estimation_data()
 
         if self._debug:
@@ -191,7 +214,7 @@ class PathPlanningNode(SmartyNode):
                 f"Timestamp {ts} added to _est_data with world pose: {self.abs_vec}"
             )
 
-    def shrink_estimation_data(self, max_size: int = 3):
+    def shrink_estimation_data(self, max_size: int = 10):
         """
         Shrink the estimation data to the specified maximum size.
 
@@ -200,14 +223,17 @@ class PathPlanningNode(SmartyNode):
         """
         if len(self._est_data.keys()) > max_size:
             time_stamps = list(self._est_data.keys())
-            time_stamps.sort(reverse=True)
+            time_stamps.sort(reverse=False)
             keys_to_remove = time_stamps[: len(self._est_data) - max_size]
             for key in keys_to_remove:
                 del self._est_data[key]
                 if self._debug:
                     self.get_logger().info(f"Removed timestamp {key} from _est_data")
+        assert (
+            len(self._est_data.keys()) <= max_size
+        ), "Estimation data exceeds maximum size"
 
-    def estimate_and_publish_lane(self):
+    def estimate_and_publish_lane(self, ts: str):
         """Transform the lane points to the world coordinates and publish them."""
         # TODO: Check everything
         # Shape 3 x 3
@@ -219,8 +245,18 @@ class PathPlanningNode(SmartyNode):
             ]
         )
         # Shape 2 x 1 (10 times)
-        left_points = np.array(self._est_data["left"].lane_points)
-        right_points = np.array(self._est_data["right"].lane_points)
+        left_points = np.array(self._est_data[ts].lane_points.get("left", []))
+        right_points = np.array(self._est_data[ts].lane_points.get("right", []))
+
+        if len(left_points) == 0 or len(right_points) == 0:
+            self.get_logger().warn("No lane points available for transformation.")
+            return
+
+        assert (
+            left_points.shape == right_points.shape
+        ), "Left and right points must have the same shape"
+        assert left_points.shape[1] == 2, "Points must have 2 coordinates (x, y)"
+        assert left_points.shape[0] == 10, "Points must have 10 coordinates"
 
         # Make homogeneous coordinates
         left_points_homogeneous = np.hstack(
@@ -233,6 +269,16 @@ class PathPlanningNode(SmartyNode):
         # shape 3 x 10
         left_transformed = np.dot(T, left_points_homogeneous.T)
         right_transformed = np.dot(T, right_points_homogeneous.T)
+
+        assert (
+            left_transformed.shape == right_transformed.shape
+        ), "Left and right transformed points must have the same shape"
+        assert (
+            left_transformed.shape[0] == 3
+        ), "Transformed points must have 3 coordinates"
+        assert (
+            left_transformed.shape[1] == 10
+        ), "Transformed points must have 10 coordinates"
 
         # shape 2 x 10
         left_transformed = left_transformed[:2, :].T
@@ -274,11 +320,17 @@ class PathPlanningNode(SmartyNode):
         if self._state != NodeState.ACTIVE:
             return
 
+        # Todo: Remove
+        if time.time() - self.last_time < 2:
+            return
+        self.last_time = time.time()
+
         s, ns = rclpy.clock.Clock().now().seconds_nanoseconds()
         ts = f"{s}.{ns}"
+        self._newest_lane_timestamp = ts
 
         if ts not in self._est_data.keys():
-            rclpy.get_logger().warn(
+            self.get_logger().warn(
                 f"Timestamp {ts} not found in _est_data. Skipping processing."
             )
             self._est_data[ts] = EstimationData(
@@ -302,9 +354,9 @@ class PathPlanningNode(SmartyNode):
             self.left_lane_coefficients,
             self.right_lane_coefficients,
         ) = self.myController.start_main_process(
-            left_lane_points=self.serialize_lane(LaneDetectionResult.left),
-            center_lane_points=self.serialize_lane(LaneDetectionResult.center),
-            right_lane_points=self.serialize_lane(LaneDetectionResult.right),
+            left_lane_points=serialize_lane(LaneDetectionResult.left)["points"],
+            center_lane_points=serialize_lane(LaneDetectionResult.center)["points"],
+            right_lane_points=serialize_lane(LaneDetectionResult.right)["points"],
         )
 
         # Get 10 points for each lane
