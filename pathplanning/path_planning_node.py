@@ -190,10 +190,10 @@ class PathPlanningNode(SmartyNode):
         # Estimate new lane
         self.estimate_and_publish_lane(self._newest_lane_timestamp)
 
-        if self._debug:
-            self.get_logger().info(
-                f"Pose Estimation: x={self.est_vec[0]}, y={self.est_vec[1]}, psi={self.est_vec[2]}"
-            )
+        # if self._debug:
+        #     self.get_logger().info(
+        #         f"Pose Estimation: x={self.est_vec[0]}, y={self.est_vec[1]}, psi={self.est_vec[2]}"
+        #     )
 
     def timestamp_callback(self, msg: std_msgs.msg.Header) -> None:
         """Resets the estimation to zero."""
@@ -216,10 +216,10 @@ class PathPlanningNode(SmartyNode):
 
         self.shrink_estimation_data()
 
-        if self._debug:
-            self.get_logger().info(
-                f"Timestamp {ts} added to _est_data with world pose: {self.abs_vec}"
-            )
+        # if self._debug:
+        # self.get_logger().info(
+        #     f"Timestamp {ts} added to _est_data with world pose: {self.abs_vec}"
+        # )
 
     def shrink_estimation_data(self, max_size: int = 10):
         """
@@ -242,7 +242,6 @@ class PathPlanningNode(SmartyNode):
 
     def estimate_and_publish_lane(self, ts: str):
         """Transform the lane points to the world coordinates and publish them."""
-        # TODO: Check everything
         # Shape 3 x 3
         T = np.array(
             [
