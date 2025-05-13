@@ -18,6 +18,7 @@ from camera_preprocessing.transformation.distortion import Distortion
 from lane_msgs.msg import Lane, LaneDetectionResult
 from smarty_utils.enums import Location, NodeState
 from smarty_utils.smarty_node import SmartyNode
+from sympy import E
 
 from pathplanning.framework.pathplanningController import PPController
 
@@ -163,6 +164,10 @@ class PathPlanningNode(SmartyNode):
         Arguments:
             pose_msg -- The pose message.
         """
+        if not self.active:
+            self.get_logger().debug("🚗 Path planning node is not active.")
+            return
+
         self.abs_vec = np.array(
             [
                 pose_msg.position.x,
@@ -171,7 +176,7 @@ class PathPlanningNode(SmartyNode):
             ]
         )
         if not self._newest_lane_timestamp:
-            self.get_logger().warn("No lane timestamp avaiable. Cannot estimate pose.")
+            self.get_logger().debug("No lane timestamp avaiable. Cannot estimate pose.")
             return
 
         try:
@@ -182,25 +187,25 @@ class PathPlanningNode(SmartyNode):
             self.get_logger().warn(
                 f"Timestamp {self._newest_lane_timestamp} not found in _est_data. Cannot estimate pose."
             )
-            # Todo: Remove
-            raise KeyError(
-                f"Timestamp {self._newest_lane_timestamp} not found in _est_data."
-            )
 
         # Estimate new lane
-        self.estimate_and_publish_lane(self._newest_lane_timestamp)
-
-        # if self._debug:
-        #     self.get_logger().info(
-        #         f"Pose Estimation: x={self.est_vec[0]}, y={self.est_vec[1]}, psi={self.est_vec[2]}"
-        #     )
+        try:
+            self.estimate_and_publish_lane(self._newest_lane_timestamp)
+        except KeyError:
+            self.get_logger().error(
+                f"Timestamp {self._newest_lane_timestamp} not found in _est_data. Cannot estimate lane."
+            )
+        except Exception as e:
+            self.get_logger().error(
+                f"Error estimating lane: {e}. Timestamp: {self._newest_lane_timestamp}"
+            )
 
     def timestamp_callback(self, msg: std_msgs.msg.Header) -> None:
         """Resets the estimation to zero."""
         ts = f"{msg.stamp.sec}.{msg.stamp.nanosec}"
 
         if ts in self._est_data:
-            self.get_logger().warn(
+            self.get_logger().debug(
                 f"Timestamp {ts} already exists in _est_data. Overwriting."
             )
         self._est_data[ts] = EstimationData(
@@ -215,11 +220,6 @@ class PathPlanningNode(SmartyNode):
         print("-" * 20)
 
         self.shrink_estimation_data()
-
-        # if self._debug:
-        # self.get_logger().info(
-        #     f"Timestamp {ts} added to _est_data with world pose: {self.abs_vec}"
-        # )
 
     def shrink_estimation_data(self, max_size: int = 10):
         """
@@ -255,7 +255,7 @@ class PathPlanningNode(SmartyNode):
         right_points = np.array(self._est_data[ts].lane_points.get("right", []))
 
         if len(left_points) == 0 or len(right_points) == 0:
-            self.get_logger().warn("No lane points available for transformation.")
+            self.get_logger().debug("No lane points available for transformation.")
             return
 
         assert (
@@ -327,7 +327,8 @@ class PathPlanningNode(SmartyNode):
         Args:
             LaneDetectionResult (LaneDetectionResult): Detected lane information.
         """
-        if self._state != NodeState.ACTIVE:
+        if not self.active:
+            self.get_logger().debug("🚗 Path planning node is not active.")
             return
 
         s, ns = rclpy.clock.Clock().now().seconds_nanoseconds()
@@ -370,49 +371,13 @@ class PathPlanningNode(SmartyNode):
         right_points = np.array(list(zip(x, y_right)))
         self._est_data[ts].lane_points = {"left": left_points, "right": right_points}
 
-        # if (
-        #     self._state == NodeState.ACTIVE
-        #     and any(self.left_lane_coefficients)
-        #     and any(self.right_lane_coefficients)
-        # ):
-        #     self.calculate_ref_point()
-
         func_time = (
             time.time() - start_time
         ) * 1000  # Calculate the time in milliseconds
         self.times.append(func_time)
-        print(f"{sum(self.times) / len(self.times)} ms")
-        print("---------------------")
-
-    # def calculate_ref_point(self):
-    #     """Calculate the reference point for the vehicle's trajectory based on its current state."""
-    #     if self._state != NodeState.ACTIVE:
-    #         if self._debug:
-    #             self.get_logger().info("Node not active, skipping ...")
-    #         return
-
-    #     lane_coefficients = (
-    #         self.left_lane_coefficients
-    #         if self._goal_lane == Location.LEFT
-    #         else self.right_lane_coefficients
-    #     )
-
-    #     if any(lane_coefficients):
-    #         ref_x, ref_y, theta = self.myController.ref_point_controller(
-    #             lane_coefficients
-    #         )
-    #         self.drive_point_ruling = (int(ref_x), int(ref_y))
-    #         print(f"ref_x: {ref_x}, ref_y: {ref_y}, theta: {theta}")
-    #         # ref_x, ref_y, _ = self.coord_trans.bird_to_world([[ref_x, ref_y]])[0]
-    #         print(f"x={ref_x / 1000}, y={ ref_y  / 1000}, theta={theta}")
-
-    #         if theta <= 0.3:
-    #             theta = theta / 4
-    #             print(theta)
-
-    #         self.ref_point_publisher.publish(
-    #             geometry_msgs.msg.Vector3(y=ref_y / 1000, x=ref_x / 1000, z=theta)
-    #         )
+        if self._debug:
+            print(f"{sum(self.times) / len(self.times)} ms")
+            print("---------------------")
 
     def debug_image_callback(self, msg: sensor_msgs.msg.Image):
         """
@@ -425,16 +390,12 @@ class PathPlanningNode(SmartyNode):
             return
 
         debug_image = self.cv_bridge.imgmsg_to_cv2(msg, desired_encoding="rgb8")
-        # debug_image = cv2.cvtColor(debug_image, cv2.COLOR_GRAY2RGB)
         self._debug_image = debug_image
 
     def debug_image(self):
         """Processes the image message for debugging purposes and publishes the resulting debug image."""
         if not self._state == NodeState.ACTIVE or not self._debug:
             return
-
-        # debug_image = self.cv_bridge.imgmsg_to_cv2(image_msg, desired_encoding="8UC1")
-        # debug_image = cv2.cvtColor(debug_image, cv2.COLOR_GRAY2RGB)
         if (
             self._newest_lane_timestamp not in self._est_data
             or self._debug_image is None
