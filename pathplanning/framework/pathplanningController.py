@@ -4,6 +4,8 @@ from collections import deque
 import numpy as np
 from scipy.optimize import minimize
 
+LANE_DIST = 400
+
 
 class PPController:
     """
@@ -47,12 +49,8 @@ class PPController:
     def reset(self):
         """Reset controller state and trajectory history."""
         self._curr_var = 0
-        self.prev_lanes = {
-            "left": deque(maxlen=self.max_history),
-            "right": deque(maxlen=self.max_history),
-        }
-        self.prev_lanes["left"].append([0] * (self.poly_degree + 1))
-        self.prev_lanes["right"].append([0] * (self.poly_degree + 1))
+        self.prev_lanes = deque(maxlen=self.max_history)
+        self.prev_lanes.append([0] * (self.poly_degree + 1))
 
     def _filter_unique(self, points):
         """
@@ -106,7 +104,7 @@ class PPController:
                 self.logger.error(f"Polynomial fitting failed: {e}")
             raise ValueError("Polynomial fitting failed")
 
-    def _rate_polynom(self, coefficients, leftorright: bool, var: float):
+    def _rate_polynom(self, coefficients, var: float):
         """
         Smooth coefficient changes with rate limiting and EMA.
 
@@ -117,11 +115,10 @@ class PPController:
         Returns:
             list: Smoothed coefficients.
         """
-        side = "left" if leftorright else "right"
-        prev_coeffs = np.array(list(self.prev_lanes[side]))
+        prev_coeffs = np.array(list(self.prev_lanes))
 
         if self.remote_state == 1 or not prev_coeffs.any():
-            self.prev_lanes[side].append(coefficients)
+            self.prev_lanes.append(coefficients)
             return coefficients
 
         alpha = 1 - (100 / var) if var > 0 else 1
@@ -137,7 +134,7 @@ class PPController:
             self._coef_max,
         )
 
-        self.prev_lanes[side].append(smoothed_coeffs)
+        self.prev_lanes.append(smoothed_coeffs)
         return smoothed_coeffs
 
     def _calc_variance(self, points: np.ndarray):
@@ -170,11 +167,8 @@ class PPController:
         """
         try:
             # Calculate lane coefficients
-            left_coeffs = self._get_lane_coefficients(
-                left_lane_points, center_lane_points, True
-            )
-            right_coeffs = self._get_lane_coefficients(
-                center_lane_points, right_lane_points, False
+            left_coeffs, right_coeffs = self._get_lane_coefficients(
+                left_lane_points, center_lane_points, right_lane_points
             )
 
             return left_coeffs, right_coeffs
@@ -182,48 +176,64 @@ class PPController:
         except Exception as e:
             if self.logger:
                 self.logger.error(f"Error in main process: {e}")
-            return self.prev_lanes["left"][-1], self.prev_lanes["right"][-1]
+            return self._shift_left(self.prev_lanes[0]), self._shift_right(
+                self.prev_lanes[0]
+            )
 
-    def _get_lane_coefficients(self, points1, points2, left_or_right: bool):
+    def _get_lane_coefficients(self, left_points, center_points, right_points):
         """
         Get lane coefficients.
 
         Args:
             points1: Points for the first set of lane points.
             points2: Points for the second set of lane points.
-            left_or_right (bool): True for left lane, False for right lane.
 
         Returns:
             list: List of lane coefficients.
         """
-        unique_points1 = self._filter_unique(points1)
-        unique_points2 = self._filter_unique(points2)
-        left_side = self._polyfit_coefficients(unique_points1)
-        right_side = self._polyfit_coefficients(unique_points2)
-        middle_coefficients = self._middle_coefficients(left_side, right_side)
+        # unique_points1 = self._filter_unique(points1)
+        # unique_points2 = self._filter_unique(points2)
+        left_side = self._polyfit_coefficients(left_points)
+        right_side = self._polyfit_coefficients(right_points)
+        center = self._polyfit_coefficients(center_points)
         var = np.mean(
             [
-                self._calc_variance(np.array(points1)),
-                self._calc_variance(np.array(points2)),
+                self._calc_variance(np.array(left_points)),
+                self._calc_variance(np.array(right_points)),
+                self._calc_variance(np.array(center_points)),
             ]
         )
-        return self._rate_polynom(middle_coefficients, left_or_right, var)
+        middle_coefficients = np.mean([left_side, center, right_side], axis=0)
+        rated = self._rate_polynom(middle_coefficients, var)
+        return self._shift_left(rated), self._shift_right(rated)
 
-    def _middle_coefficients(self, left_coeffs, right_coeffs):
+    def _shift_left(self, coefficients):
         """
-        Calculate middle coefficients from left and right lane coefficients.
+        Shift polynomial coefficients to the left (y-axis).
 
         Args:
-            left_coeffs: Coefficients for the left lane.
-            right_coeffs: Coefficients for the right lane.
+            coefficients (list): Polynomial coefficients.
 
         Returns:
-            list: List of middle coefficients.
+            list: Shifted polynomial coefficients.
         """
-        if len(left_coeffs) != len(right_coeffs):
-            raise ValueError("Coefficient lengths do not match")
+        shifted = coefficients.copy()
+        shifted[-1] -= LANE_DIST
+        return shifted
 
-        return [(l + r) / 2 for l, r in zip(left_coeffs, right_coeffs)]
+    def _shift_right(self, coefficients):
+        """
+        Shift polynomial coefficients to the right (y-axis).
+
+        Args:
+            coefficients (list): Polynomial coefficients.
+
+        Returns:
+            list: Shifted polynomial coefficients.
+        """
+        shifted = coefficients.copy()
+        shifted[-1] += LANE_DIST
+        return shifted
 
     def ref_point_controller(self, coefficients, est_vec):
         """
