@@ -128,7 +128,7 @@ class PathPlanningNode(SmartyNode):
                 "image_debug_publisher": (sensor_msgs.msg.Image, None),
             },
         )
-        self._goal_lane = Location.RIGHT
+        self._goal_lane = Location.RIGHT_LANE
         self.times = []
 
         # Setup Framework & Cord Transformation
@@ -291,12 +291,8 @@ class PathPlanningNode(SmartyNode):
         right_transformed = right_transformed[:2, :].T
 
         # Make polyfit
-        left_lane_coefficients = np.polyfit(
-            left_transformed[:, 0], left_transformed[:, 1], 2
-        )
-        right_lane_coefficients = np.polyfit(
-            right_transformed[:, 0], right_transformed[:, 1], 2
-        )
+        left_lane_coefficients = np.polyfit(left_points[:, 0], left_points[:, 1], 2)
+        right_lane_coefficients = np.polyfit(right_points[:, 0], right_points[:, 1], 2)
 
         # Publish the lane coefficients
         for lane_type, lane_coefficients in zip(
@@ -311,6 +307,35 @@ class PathPlanningNode(SmartyNode):
                         z=lane_coefficients[2],
                     )
                 )
+                self.calculate_ref_point(
+                    left_lane_coefficients, right_lane_coefficients
+                )
+
+    def calculate_ref_point(self, left: tuple, right: tuple):
+        """Calculate the reference point for the vehicle's trajectory based on its current state."""
+        if self._state != NodeState.ACTIVE:
+            if self._debug:
+                self.get_logger().info("Node not active, skipping ...")
+            return
+
+        lane_coefficients = left if self._goal_lane == Location.LEFT_LANE else right
+
+        if any(lane_coefficients):
+            ref_x, ref_y, theta = self.myController.ref_point_controller(
+                lane_coefficients
+            )
+            self.drive_point_ruling = (int(ref_x), int(ref_y))
+            print(f"ref_x: {ref_x}, ref_y: {ref_y}, theta: {theta}")
+            # ref_x, ref_y, _ = self.coord_trans.bird_to_world([[ref_x, ref_y]])[0]
+            print(f"x={ref_x / 1000}, y={ ref_y  / 1000}, theta={theta}")
+
+            if theta <= 0.3:
+                theta = theta / 4
+                print(theta)
+
+            self.ref_point_publisher.publish(
+                geometry_msgs.msg.Vector3(y=ref_y / 1000, x=ref_x / 1000, z=theta)
+            )
 
     def _reset(self) -> None:
         """Reset the node."""

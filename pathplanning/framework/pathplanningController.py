@@ -1,3 +1,4 @@
+import math
 from collections import deque
 
 import numpy as np
@@ -222,3 +223,21 @@ class PPController:
             raise ValueError("Coefficient lengths do not match")
 
         return [(l + r) / 2 for l, r in zip(left_coeffs, right_coeffs)]
+
+    def ref_point_controller(self, coefficients):
+        """
+        Determines reference points for the controller based on the provided polynomial coefficients.
+
+        Args:
+            coefficients (list): List of coefficients representing the polynomial.
+
+        Returns:
+            tuple: Tuple containing (x, y, theta) representing the reference point coordinates and angle.
+        """
+        p = np.poly1d(coefficients)
+        x = self.parameter_callback("trj_look_forward").value
+        y = p(x)
+        theta = -1 * math.atan(
+            -2 * coefficients[0] * (y / 1000) - coefficients[1]
+        )  # Tom fragen
+        return x, y, theta
