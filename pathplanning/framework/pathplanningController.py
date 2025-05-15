@@ -2,6 +2,7 @@ import math
 from collections import deque
 
 import numpy as np
+from scipy.optimize import minimize
 
 
 class PPController:
@@ -37,9 +38,9 @@ class PPController:
         self.smoothing_alpha = 0.6  # EMA smoothing factor (lower = smoother)
         # self.rate_limit = 0.2  # Maximum allowed rate of change
         self.max_history = 50  # Number of previous coefficients to store
-        self._coef_min = [-0.006, -6, -1e6]  # Minimum coefficient value
-        self._coef_max = [0.006, 6, 1e6]  # Maximum coefficient value
-        self._max_variance = 0.1  # Maximum allowed variance y coordinate
+        self._coef_min = [-0.01, -10, -1e6]  # Minimum coefficient value
+        self._coef_max = [0.01, 10, 1e6]  # Maximum coefficient value
+        self._max_variance = 0.03  # Maximum allowed variance y coordinate
 
         self.reset()
 
@@ -224,20 +225,22 @@ class PPController:
 
         return [(l + r) / 2 for l, r in zip(left_coeffs, right_coeffs)]
 
-    def ref_point_controller(self, coefficients):
+    def ref_point_controller(self, coefficients, est_vec):
         """
         Determines reference points for the controller based on the provided polynomial coefficients.
 
         Args:
             coefficients (list): List of coefficients representing the polynomial.
+            est_vec (list): List of estimated vectors.
 
         Returns:
             tuple: Tuple containing (x, y, theta) representing the reference point coordinates and angle.
         """
-        p = np.poly1d(coefficients)
-        x = self.parameter_callback("trj_look_forward").value
-        y = p(x)
-        theta = -1 * math.atan(
-            -2 * coefficients[0] * (y / 1000) - coefficients[1]
-        )  # Tom fragen
+        # pose = np.array([est_vec[0], est_vec[1]])
+        # heading = est_vec[2]
+        result = minimize(lambda x: np.polyval(coefficients, x), x0=est_vec[0])
+        x = result.x[0]
+        y = np.polyval(coefficients, x)
+
+        theta = np.arctan(np.polyval(np.polyder(coefficients), x))
         return x, y, theta

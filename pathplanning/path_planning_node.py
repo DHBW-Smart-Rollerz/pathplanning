@@ -308,10 +308,12 @@ class PathPlanningNode(SmartyNode):
                     )
                 )
                 self.calculate_ref_point(
-                    left_lane_coefficients, right_lane_coefficients
+                    left_lane_coefficients,
+                    right_lane_coefficients,
+                    est_vec=self.est_vec,
                 )
 
-    def calculate_ref_point(self, left: tuple, right: tuple):
+    def calculate_ref_point(self, left: tuple, right: tuple, est_vec: np.ndarray):
         """Calculate the reference point for the vehicle's trajectory based on its current state."""
         if self._state != NodeState.ACTIVE:
             if self._debug:
@@ -322,7 +324,7 @@ class PathPlanningNode(SmartyNode):
 
         if any(lane_coefficients):
             ref_x, ref_y, theta = self.myController.ref_point_controller(
-                lane_coefficients
+                lane_coefficients, est_vec
             )
             self.drive_point_ruling = (int(ref_x), int(ref_y))
             print(f"ref_x: {ref_x}, ref_y: {ref_y}, theta: {theta}")
