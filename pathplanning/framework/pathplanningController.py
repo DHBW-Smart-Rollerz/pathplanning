@@ -4,7 +4,7 @@ from collections import deque
 import numpy as np
 from scipy.optimize import minimize
 
-LANE_DIST = 400
+LANE_DIST = 350
 
 
 class PPController:

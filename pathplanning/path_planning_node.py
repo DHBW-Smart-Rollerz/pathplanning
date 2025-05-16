@@ -242,53 +242,53 @@ class PathPlanningNode(SmartyNode):
 
     def estimate_and_publish_lane(self, ts: str):
         """Transform the lane points to the world coordinates and publish them."""
-        # Shape 3 x 3
-        T = np.array(
-            [
-                [np.cos(self.est_vec[2]), -np.sin(self.est_vec[2]), self.est_vec[0]],
-                [np.sin(self.est_vec[2]), np.cos(self.est_vec[2]), self.est_vec[1]],
-                [0, 0, 1],
-            ]
-        )
+        # # Shape 3 x 3
+        # T = np.array(
+        #     [
+        #         [np.cos(self.est_vec[2]), -np.sin(self.est_vec[2]), self.est_vec[0]],
+        #         [np.sin(self.est_vec[2]), np.cos(self.est_vec[2]), self.est_vec[1]],
+        #         [0, 0, 1],
+        #     ]
+        # )
         # Shape 2 x 1 (10 times)
         left_points = np.array(self._est_data[ts].lane_points.get("left", []))
         right_points = np.array(self._est_data[ts].lane_points.get("right", []))
 
-        if len(left_points) == 0 or len(right_points) == 0:
-            self.get_logger().debug("No lane points available for transformation.")
-            return
+        # if len(left_points) == 0 or len(right_points) == 0:
+        #     self.get_logger().debug("No lane points available for transformation.")
+        #     return
 
-        assert (
-            left_points.shape == right_points.shape
-        ), "Left and right points must have the same shape"
-        assert left_points.shape[1] == 2, "Points must have 2 coordinates (x, y)"
-        assert left_points.shape[0] == 10, "Points must have 10 coordinates"
+        # assert (
+        #     left_points.shape == right_points.shape
+        # ), "Left and right points must have the same shape"
+        # assert left_points.shape[1] == 2, "Points must have 2 coordinates (x, y)"
+        # assert left_points.shape[0] == 10, "Points must have 10 coordinates"
 
-        # Make homogeneous coordinates
-        left_points_homogeneous = np.hstack(
-            (left_points, np.ones((left_points.shape[0], 1)))
-        )
-        right_points_homogeneous = np.hstack(
-            (right_points, np.ones((right_points.shape[0], 1)))
-        )
+        # # Make homogeneous coordinates
+        # left_points_homogeneous = np.hstack(
+        #     (left_points, np.ones((left_points.shape[0], 1)))
+        # )
+        # right_points_homogeneous = np.hstack(
+        #     (right_points, np.ones((right_points.shape[0], 1)))
+        # )
 
-        # shape 3 x 10
-        left_transformed = np.dot(T, left_points_homogeneous.T)
-        right_transformed = np.dot(T, right_points_homogeneous.T)
+        # # shape 3 x 10
+        # left_transformed = np.dot(T, left_points_homogeneous.T)
+        # right_transformed = np.dot(T, right_points_homogeneous.T)
 
-        assert (
-            left_transformed.shape == right_transformed.shape
-        ), "Left and right transformed points must have the same shape"
-        assert (
-            left_transformed.shape[0] == 3
-        ), "Transformed points must have 3 coordinates"
-        assert (
-            left_transformed.shape[1] == 10
-        ), "Transformed points must have 10 coordinates"
+        # assert (
+        #     left_transformed.shape == right_transformed.shape
+        # ), "Left and right transformed points must have the same shape"
+        # assert (
+        #     left_transformed.shape[0] == 3
+        # ), "Transformed points must have 3 coordinates"
+        # assert (
+        #     left_transformed.shape[1] == 10
+        # ), "Transformed points must have 10 coordinates"
 
-        # shape 2 x 10
-        left_transformed = left_transformed[:2, :].T
-        right_transformed = right_transformed[:2, :].T
+        # # shape 2 x 10
+        # left_transformed = left_transformed[:2, :].T
+        # right_transformed = right_transformed[:2, :].T
 
         # Make polyfit
         left_lane_coefficients = np.polyfit(left_points[:, 0], left_points[:, 1], 2)
@@ -442,8 +442,8 @@ class PathPlanningNode(SmartyNode):
         left_points = np.hstack((left_points, np.zeros((left_points.shape[0], 1))))
         right_points = np.hstack((right_points, np.zeros((right_points.shape[0], 1))))
 
-        image_left_points = self.coord_trans.world_to_camera(left_points)
-        image_right_points = self.coord_trans.world_to_camera(right_points)
+        image_left_points = self.coord_trans.world_to_bird(left_points)
+        image_right_points = self.coord_trans.world_to_bird(right_points)
 
         for point in image_left_points:
             cv2.circle(debug_image, (int(point[0]), int(point[1])), 5, (0, 255, 0), -1)
@@ -453,7 +453,7 @@ class PathPlanningNode(SmartyNode):
         # Draw the reference point
         ref_point = self.est_vec[:2]
         ref_point = np.array([[ref_point[0], ref_point[1], 0]])
-        image_ref = self.coord_trans.world_to_camera(ref_point)
+        image_ref = self.coord_trans.world_to_bird(ref_point)
         cv2.circle(
             debug_image,
             (int(image_ref[0][0]), int(image_ref[0][1])),
