@@ -16,7 +16,7 @@ from camera_preprocessing.transformation.distortion import Distortion
 from lane_msgs.msg import Lane, LaneDetectionResult
 from smarty_utils.enums import NodeState
 from smarty_utils.smarty_node import SmartyNode
-from state_machine.utils import Location
+from smarty_utils.utils import Location
 
 from pathplanning.framework.pathplanningController import PPController
 
