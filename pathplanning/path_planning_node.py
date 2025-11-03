@@ -14,9 +14,8 @@ from camera_preprocessing.transformation.birds_eyed_view import Birdseye
 from camera_preprocessing.transformation.coordinate_transform import CoordinateTransform
 from camera_preprocessing.transformation.distortion import Distortion
 from lane_msgs.msg import Lane, LaneDetectionResult
-from smarty_utils.enums import NodeState
+from smarty_utils.enums import Location, NodeState
 from smarty_utils.smarty_node import SmartyNode
-from smarty_utils.utils import Location
 
 from pathplanning.framework.pathplanningController import PPController
 
