@@ -9,7 +9,7 @@ from lane_msgs.msg import Lane, LaneDetectionResult
 from smarty_utils.smarty_node import SmartyNode
 from visualization_msgs.msg import Marker
 
-from pathplanning.algorithms import huber_regression, ridge
+from pathplanning.algorithms import huber_regression, ridgecv
 
 
 def serialize_lane(Lane: Lane):
@@ -56,13 +56,6 @@ class PathPlanningNode(SmartyNode):
             visualization_msgs.msg.Marker, "/path_planning/debug/right", 10
         )
 
-        # Store previous regression coefficients for each lane
-        self.prev_coeffs = {
-            "left": None,
-            "center": None,
-            "right": None,
-        }
-
     def receive_lane_detection_result(self, result: LaneDetectionResult):
         """
         Process serialized lane points.
@@ -83,7 +76,7 @@ class PathPlanningNode(SmartyNode):
             if len(serialized_lane["points"]) < 10 or not lane.detected:
                 continue
 
-            points = huber_regression.huber_regression(serialized_lane)
+            points = ridgecv.ridge(serialized_lane)
 
             self.publish_list_of_points(points, publisher, color)
 
