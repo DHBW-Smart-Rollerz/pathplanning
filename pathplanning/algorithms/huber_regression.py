@@ -20,10 +20,13 @@ def huber_regression(lane):
     poly = PolynomialFeatures(degree)
     x_poly = poly.fit_transform(x.reshape(-1, 1))
 
-    reg = HuberRegressor().fit(x_poly, y)
+    try:
+        reg = HuberRegressor(epsilon=1).fit(x_poly, y)
+    except Exception:
+        return []
 
     # Sample points along the x-range for visualization
-    x_vis = np.linspace(min(x.min(), x.max()), max(x.min(), x.max()), 500)
+    x_vis = np.linspace(x.min(), x.max(), 100)
     x_vis_poly = poly.transform(x_vis.reshape(-1, 1))
     y_vis = reg.predict(x_vis_poly)
     points = np.column_stack((x_vis, y_vis)).tolist()
