@@ -9,7 +9,7 @@ from lane_msgs.msg import Lane, LaneDetectionResult
 from smarty_utils.smarty_node import SmartyNode
 from visualization_msgs.msg import Marker
 
-from pathplanning.algorithms import huber_regression, ridgecv
+from pathplanning.algorithms import bspline, huber_regression, ridgecv, theil_sen
 
 
 def serialize_lane(Lane: Lane):
@@ -69,6 +69,8 @@ class PathPlanningNode(SmartyNode):
             ("right", self.right_debug_publisher, (0, 0, 255)),
         ]
 
+        coordinates = {"left": [], "center": [], "right": []}
+
         for lane_name, publisher, color in lanes:
             lane = getattr(result, lane_name)
             serialized_lane = serialize_lane(lane)
@@ -77,6 +79,8 @@ class PathPlanningNode(SmartyNode):
                 continue
 
             points = ridgecv.ridge(serialized_lane)
+
+            coordinates[lane_name] = points
 
             self.publish_list_of_points(points, publisher, color)
 

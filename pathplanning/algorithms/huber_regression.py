@@ -21,7 +21,7 @@ def huber_regression(lane):
     x_poly = poly.fit_transform(x.reshape(-1, 1))
 
     try:
-        reg = HuberRegressor(epsilon=1).fit(x_poly, y)
+        reg = HuberRegressor(epsilon=2).fit(x_poly, y)
     except Exception:
         return []
 
