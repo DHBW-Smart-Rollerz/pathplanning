@@ -9,7 +9,7 @@ from lane_msgs.msg import Lane, LaneDetectionResult
 from smarty_utils.smarty_node import SmartyNode
 from visualization_msgs.msg import Marker
 
-from pathplanning.algorithms import bspline, huber_regression, ridgecv, theil_sen
+from pathplanning.algorithms import bspline, huber_regression, ridge_ransac, ridgecv
 
 
 def serialize_lane(Lane: Lane):
@@ -46,14 +46,22 @@ class PathPlanningNode(SmartyNode):
             10,
         )
 
-        self.left_debug_publisher = self.create_publisher(
+        # publisher for debug purposes in RViz
+        self.left_lane_debug_publisher = self.create_publisher(
             visualization_msgs.msg.Marker, "/path_planning/debug/left", 10
         )
-        self.center_debug_publisher = self.create_publisher(
+        self.center_lane_debug_publisher = self.create_publisher(
             visualization_msgs.msg.Marker, "/path_planning/debug/center", 10
         )
-        self.right_debug_publisher = self.create_publisher(
+        self.right_lane_debug_publisher = self.create_publisher(
             visualization_msgs.msg.Marker, "/path_planning/debug/right", 10
+        )
+
+        self.left_path_debug_publisher = self.create_publisher(
+            visualization_msgs.msg.Marker, "/path_planning/debug/left_path", 10
+        )
+        self.right_path_debug_publisher = self.create_publisher(
+            visualization_msgs.msg.Marker, "/path_planning/debug/right_path", 10
         )
 
     def receive_lane_detection_result(self, result: LaneDetectionResult):
@@ -64,9 +72,9 @@ class PathPlanningNode(SmartyNode):
             result -- Lane detection result message.
         """
         lanes = [
-            ("left", self.left_debug_publisher, (255, 0, 0)),
-            ("center", self.center_debug_publisher, (0, 255, 0)),
-            ("right", self.right_debug_publisher, (0, 0, 255)),
+            ("left", self.left_lane_debug_publisher, (255, 0, 0)),
+            ("center", self.center_lane_debug_publisher, (0, 255, 0)),
+            ("right", self.right_lane_debug_publisher, (0, 0, 255)),
         ]
 
         coordinates = {"left": [], "center": [], "right": []}
@@ -75,14 +83,38 @@ class PathPlanningNode(SmartyNode):
             lane = getattr(result, lane_name)
             serialized_lane = serialize_lane(lane)
 
-            if len(serialized_lane["points"]) < 10 or not lane.detected:
-                continue
+            if len(serialized_lane["points"]) >= 10 and lane.detected:
+                points = ridge_ransac.ridge_ransac(serialized_lane)
 
-            points = ridgecv.ridge(serialized_lane)
+            else:
+                points = []
 
             coordinates[lane_name] = points
 
             self.publish_list_of_points(points, publisher, color)
+
+        # Calculate midlines between left-center and center-right
+        if len(coordinates["left"]) > 0 and len(coordinates["center"]) > 0:
+            mid_left_center = [
+                [(l[0] + c[0]) / 2, (l[1] + c[1]) / 2]
+                for l, c in zip(coordinates["left"], coordinates["center"])
+            ]
+            self.publish_list_of_points(
+                mid_left_center, self.left_path_debug_publisher, (255, 255, 255)
+            )
+        else:
+            self.empty_marker_topic(self.left_path_debug_publisher)
+
+        if len(coordinates["center"]) > 0 and len(coordinates["right"]) > 0:
+            mid_center_right = [
+                [(c[0] + r[0]) / 2, (c[1] + r[1]) / 2]
+                for c, r in zip(coordinates["center"], coordinates["right"])
+            ]
+            self.publish_list_of_points(
+                mid_center_right, self.right_path_debug_publisher, (255, 255, 255)
+            )
+        else:
+            self.empty_marker_topic(self.right_path_debug_publisher)
 
     def publish_list_of_points(self, points, publisher, color=(1.0, 1.0, 1.0)):
         """
@@ -113,6 +145,21 @@ class PathPlanningNode(SmartyNode):
             p.y = point[1]
             p.z = 0.0
             marker.points.append(p)
+        publisher.publish(marker)
+
+    def empty_marker_topic(self, publisher):
+        """
+        Publishes an empty marker to clear the topic.
+
+        Arguments:
+            publisher -- ROS publisher to use.
+        """
+        marker = Marker()
+        marker.header.frame_id = "map"
+        marker.header.stamp = self.get_clock().now().to_msg()
+        marker.ns = "lane_polynom"
+        marker.id = 0
+        marker.action = Marker.DELETE
         publisher.publish(marker)
 
 
