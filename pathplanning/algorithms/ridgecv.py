@@ -3,7 +3,7 @@ from sklearn.linear_model import RidgeCV
 from sklearn.preprocessing import PolynomialFeatures
 
 
-def ridge(lane):
+def ridgecv(lane):
     """
     Ridge Regression algorithm.
 
