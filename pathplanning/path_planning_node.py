@@ -9,7 +9,14 @@ from lane_msgs.msg import Lane, LaneDetectionResult
 from smarty_utils.smarty_node import SmartyNode
 from visualization_msgs.msg import Marker
 
-from pathplanning.algorithms import bspline, huber_regression, ridge_ransac, ridgecv
+from pathplanning.algorithms import (
+    bspline,
+    huber_regression,
+    kallmann,
+    particle_filer,
+    ridge_ransac,
+    ridgecv,
+)
 
 
 def serialize_lane(Lane: Lane):
@@ -84,7 +91,16 @@ class PathPlanningNode(SmartyNode):
             serialized_lane = serialize_lane(lane)
 
             if len(serialized_lane["points"]) >= 10 and lane.detected:
-                points = ridge_ransac.ridge_ransac(serialized_lane)
+                points = kallmann.kalman_filter(serialized_lane)
+                x_point = np.array([p[0] for p in points])
+                y_point = np.array([p[1] for p in points])
+
+                # clearing by numpy functions
+                point_fkt = np.poly1d(np.polyfit(x_point, y_point, 3))
+                points = [[x, point_fkt(x)] for x in x_point]
+
+                # 2nd filter:
+                # points = ridge_ransac.ridge_ransac(x_point, y_point) # Anpassung in ridge_ransac nötig, sodass x und y direkt mitgegeben werden beim Funktionsaufruf!!
 
             else:
                 points = []

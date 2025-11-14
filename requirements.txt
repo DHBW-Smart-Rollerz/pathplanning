@@ -1,2 +1,5 @@
 numpy
 opencv_python
+patsy
+statsmodels
+pyclothoids
