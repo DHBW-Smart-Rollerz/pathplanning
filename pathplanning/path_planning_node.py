@@ -46,7 +46,10 @@ class PathPlanningNode(SmartyNode):
             "pathplanning",
         )
 
-        self.lane_filter = RidgeRansac()
+        lane_names = ["left", "center", "right"]
+        self.lane_filters = {
+            name: RidgeRansac(diff_threshold=1.0) for name in lane_names
+        }
 
         self.lane_detection_subscription = self.create_subscription(
             LaneDetectionResult,
@@ -93,12 +96,11 @@ class PathPlanningNode(SmartyNode):
             serialized_lane = serialize_lane(lane)
 
             if len(serialized_lane["points"]) >= 10 and lane.detected:
-                points = self.lane_filter.fit(serialized_lane)
+                points = self.lane_filters[lane_name].fit(serialized_lane)
             else:
                 points = []
 
             coordinates[lane_name] = points
-
             self.publish_list_of_points(points, publisher, color)
 
         # Calculate midlines between left-center and center-right
