@@ -2,30 +2,35 @@ import numpy as np
 from sklearn.linear_model import RidgeCV
 from sklearn.preprocessing import PolynomialFeatures
 
+from pathplanning.lane_filter_base import LaneFilterBase
 
-def ridgecv(lane):
-    """
-    Ridge Regression algorithm.
 
-    Args:
-        lane (dict): Detected lane information.
+class RidgeCV(LaneFilterBase):
+    """Raw RidgeCV Regression algorithm."""
 
-    Returns:
-        list: List of points representing the fitted lane.
-    """
-    x = np.array([point[0] for point in lane["points"]])
-    y = np.array([point[1] for point in lane["points"]])
+    def fit(self, lane):
+        """
+        Fit.
 
-    degree = 3
-    poly = PolynomialFeatures(degree)
-    x_poly = poly.fit_transform(x.reshape(-1, 1))
+        Args:
+            lane (dict): Detected lane information.
 
-    reg = RidgeCV().fit(x_poly, y)
+        Returns:
+            list: List of points representing the fitted lane.
+        """
+        x = np.array([point[0] for point in lane["points"]])
+        y = np.array([point[1] for point in lane["points"]])
 
-    # Sample points along the x-range for visualization
-    x_vis = np.linspace(x.min(), x.max(), 100)
-    x_vis_poly = poly.transform(x_vis.reshape(-1, 1))
-    y_vis = reg.predict(x_vis_poly)
-    points = np.column_stack((x_vis, y_vis)).tolist()
+        degree = 3
+        poly = PolynomialFeatures(degree)
+        x_poly = poly.fit_transform(x.reshape(-1, 1))
 
-    return points
+        reg = RidgeCV().fit(x_poly, y)
+
+        # Sample points along the x-range for visualization
+        x_vis = np.linspace(x.min(), x.max(), 100)
+        x_vis_poly = poly.transform(x_vis.reshape(-1, 1))
+        y_vis = reg.predict(x_vis_poly)
+        points = np.column_stack((x_vis, y_vis)).tolist()
+
+        return points

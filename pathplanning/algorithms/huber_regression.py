@@ -2,33 +2,38 @@ import numpy as np
 from sklearn.linear_model import HuberRegressor
 from sklearn.preprocessing import PolynomialFeatures
 
+from pathplanning.lane_filter_base import LaneFilterBase
 
-def huber_regression(lane):
-    """
-    Huber Regression algorithm.
 
-    Args:
-        lane (dict): Detected lane information.
+class HuberRegression(LaneFilterBase):
+    """Huber Regression algorithm."""
 
-    Returns:
-        list: List of points representing the fitted lane.
-    """
-    x = np.array([point[0] for point in lane["points"]])
-    y = np.array([point[1] for point in lane["points"]])
+    def fit(self, lane):
+        """
+        Fit.
 
-    degree = 3
-    poly = PolynomialFeatures(degree)
-    x_poly = poly.fit_transform(x.reshape(-1, 1))
+        Args:
+            lane (dict): Detected lane information.
 
-    try:
-        reg = HuberRegressor(epsilon=2).fit(x_poly, y)
-    except Exception:
-        return []
+        Returns:
+            list: List of points representing the fitted lane.
+        """
+        x = np.array([point[0] for point in lane["points"]])
+        y = np.array([point[1] for point in lane["points"]])
 
-    # Sample points along the x-range for visualization
-    x_vis = np.linspace(x.min(), x.max(), 100)
-    x_vis_poly = poly.transform(x_vis.reshape(-1, 1))
-    y_vis = reg.predict(x_vis_poly)
-    points = np.column_stack((x_vis, y_vis)).tolist()
+        degree = 3
+        poly = PolynomialFeatures(degree)
+        x_poly = poly.fit_transform(x.reshape(-1, 1))
 
-    return points
+        try:
+            reg = HuberRegressor(epsilon=2).fit(x_poly, y)
+        except Exception:
+            return []
+
+        # Sample points along the x-range for visualization
+        x_vis = np.linspace(x.min(), x.max(), 100)
+        x_vis_poly = poly.transform(x_vis.reshape(-1, 1))
+        y_vis = reg.predict(x_vis_poly)
+        points = np.column_stack((x_vis, y_vis)).tolist()
+
+        return points
