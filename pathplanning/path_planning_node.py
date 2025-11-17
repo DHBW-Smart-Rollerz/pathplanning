@@ -47,9 +47,7 @@ class PathPlanningNode(SmartyNode):
         )
 
         lane_names = ["left", "center", "right"]
-        self.lane_filters = {
-            name: RidgeRansac(diff_threshold=1.0) for name in lane_names
-        }
+        self.lane_filters = {name: RidgeRansac() for name in lane_names}
 
         self.lane_detection_subscription = self.create_subscription(
             LaneDetectionResult,
@@ -76,6 +74,12 @@ class PathPlanningNode(SmartyNode):
             visualization_msgs.msg.Marker, "/path_planning/debug/right_path", 10
         )
 
+        self.lanes = [
+            ("left", self.left_lane_debug_publisher, (255, 0, 0)),
+            ("center", self.center_lane_debug_publisher, (0, 255, 0)),
+            ("right", self.right_lane_debug_publisher, (0, 0, 255)),
+        ]
+
     def receive_lane_detection_result(self, result: LaneDetectionResult):
         """
         Process serialized lane points.
@@ -83,19 +87,17 @@ class PathPlanningNode(SmartyNode):
         Arguments:
             result -- Lane detection result message.
         """
-        lanes = [
-            ("left", self.left_lane_debug_publisher, (255, 0, 0)),
-            ("center", self.center_lane_debug_publisher, (0, 255, 0)),
-            ("right", self.right_lane_debug_publisher, (0, 0, 255)),
-        ]
-
         coordinates = {"left": [], "center": [], "right": []}
 
-        for lane_name, publisher, color in lanes:
+        for lane_name, publisher, color in self.lanes:
             lane = getattr(result, lane_name)
             serialized_lane = serialize_lane(lane)
 
-            if len(serialized_lane["points"]) >= 10 and lane.detected:
+            serialized_lane["points"] = [
+                p for p in serialized_lane["points"] if p[0] <= 3
+            ]
+
+            if len(serialized_lane["points"]) >= 20 and lane.detected:
                 points = self.lane_filters[lane_name].fit(serialized_lane)
             else:
                 points = []
