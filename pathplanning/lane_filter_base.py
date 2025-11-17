@@ -4,7 +4,7 @@ import numpy as np
 class LaneFilterBase:
     """Base for filtering lanes with useful functions to use."""
 
-    def __init__(self, buffer_size=10, diff_threshold=10.0):
+    def __init__(self, buffer_size=10, diff_threshold=10.0, logger=None):
         """
         Init Filter base class.
 
@@ -15,6 +15,7 @@ class LaneFilterBase:
         self.buffer_size = buffer_size
         self.diff_threshold = diff_threshold
         self.last_results = []
+        self._logger = logger
 
     def fit(self, lane):
         """
