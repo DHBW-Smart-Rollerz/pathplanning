@@ -4,13 +4,13 @@ import numpy as np
 class LaneFilterBase:
     """Base for filtering lanes with useful functions to use."""
 
-    def __init__(self, buffer_size=5, diff_threshold=10.0):
+    def __init__(self, buffer_size=10, diff_threshold=10.0):
         """
         Init Filter base class.
 
         Args:
-            buffer_size (int, optional): Size of the buffer for previous results. Defaults to 5.
-            diff_threshold (float, optional): Threshold for difference to consider a new fit significantly different. Defaults to 10.0.
+            buffer_size (int, optional): Size of the buffer for previous results.
+            diff_threshold (float, optional): Threshold for difference to consider a new fit significantly different.
         """
         self.buffer_size = buffer_size
         self.diff_threshold = diff_threshold
