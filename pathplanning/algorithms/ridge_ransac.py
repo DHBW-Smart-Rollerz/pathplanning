@@ -27,7 +27,7 @@ class RidgeRansac(LaneFilterBase):
         x_poly = poly.fit_transform(x.reshape(-1, 1))
 
         base = RidgeCV()
-        reg = RANSACRegressor(base, residual_threshold=0.1, min_samples=5).fit(
+        reg = RANSACRegressor(base, residual_threshold=0.05, min_samples=5).fit(
             x_poly, y
         )
 
