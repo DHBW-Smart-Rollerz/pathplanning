@@ -32,6 +32,19 @@ class LaneFilterBase:
         """
         pass
 
+    def update_buffer(self, result):
+        """
+        Update the buffer with new points.
+
+        Args:
+            result (dict): Newly fitted lane result. Result may be points or coeffs and intercept.
+        """
+        self.last_results.append(result)
+        if len(self.last_results) > self.buffer_size:
+            self.last_results.pop(0)
+
+    # Comparison functions from here onwards for robustness over multiple frames
+
     def compare_points(self, new_points):
         """
         Compare new points to last result.
@@ -116,14 +129,3 @@ class LaneFilterBase:
             self._logger.info(f" {self.lane}: {msg}, derivative diff={diff:.4f}")
 
         return result_coeffs
-
-    def update_buffer(self, result):
-        """
-        Update the buffer with new points.
-
-        Args:
-            result (dict): Newly fitted lane result. Result may be points or coeffs and intercept.
-        """
-        self.last_results.append(result)
-        if len(self.last_results) > self.buffer_size:
-            self.last_results.pop(0)
