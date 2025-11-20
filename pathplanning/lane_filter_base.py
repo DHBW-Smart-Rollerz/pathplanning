@@ -46,13 +46,35 @@ class LaneFilterBase:
         diff = np.mean(np.linalg.norm(last - curr, axis=1))
         return diff > self.diff_threshold
 
-    def update_buffer(self, points):
+    def compare_polys(self, new_coeffs, new_intercept):
+        """
+        Compare new polynomial coefficients to last result.
+
+        Args:
+            new_coeffs (array-like): Coefficients of the newly fitted polynomial.
+            new_intercept (float): Intercept of the newly fitted polynomial.
+
+        Returns:
+            bool: True if difference exceeds threshold, False otherwise.
+        """
+        if not self.last_results:
+            return False
+        last_coeffs = self.last_results[-1]["coeffs"]
+        last_intercept = self.last_results[-1]["intercept"]
+        coeffs_diff = np.linalg.norm(np.array(last_coeffs) - np.array(new_coeffs))
+        intercept_diff = abs(last_intercept - new_intercept)
+
+        self._logger.info(int(coeffs_diff + intercept_diff))
+
+        return (coeffs_diff + intercept_diff) > self.diff_threshold
+
+    def update_buffer(self, result):
         """
         Update the buffer with new points.
 
         Args:
-            points (list): Newly fitted lane points.
+            result (dict): Newly fitted lane result. Result may be points or coeffs and intercept.
         """
-        self.last_results.append(points)
+        self.last_results.append(result)
         if len(self.last_results) > self.buffer_size:
             self.last_results.pop(0)

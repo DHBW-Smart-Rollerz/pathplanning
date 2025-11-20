@@ -31,15 +31,20 @@ class RidgeRansac(LaneFilterBase):
             x_poly, y
         )
 
+        coeffs = reg.estimator_.coef_.tolist()
+        intercept = reg.estimator_.intercept_.item()
+
+        result = {"coeffs": coeffs, "intercept": intercept}
+
+        # use last result if new fit is significantly different
+        if self.compare_polys(coeffs, intercept):
+            result = self.last_results[-1]
+
         x_vis = np.linspace(x.min(), x.max(), 100)
         x_vis_poly = poly.transform(x_vis.reshape(-1, 1))
         y_vis = reg.predict(x_vis_poly)
         points = np.column_stack((x_vis, y_vis)).tolist()
 
-        # use last result if new fit is significantly different
-        if self.compare_results(points):
-            points = self.last_results[-1]
-
-        self.update_buffer(points)
+        self.update_buffer(result)
 
         return points
