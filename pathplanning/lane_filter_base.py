@@ -17,7 +17,7 @@ class LaneFilterBase:
         self.lane = lane
         self.buffer_size = buffer_size
         self.diff_threshold = diff_threshold
-        self.last_results = []
+        self.buffer = []
         self._logger = logger
 
     def fit(self, lane):
@@ -39,28 +39,11 @@ class LaneFilterBase:
         Args:
             result (dict): Newly fitted lane result. Result may be points or coeffs and intercept.
         """
-        self.last_results.append(result)
-        if len(self.last_results) > self.buffer_size:
-            self.last_results.pop(0)
+        self.buffer.append(result)
+        if len(self.buffer) > self.buffer_size:
+            self.buffer.pop(0)
 
     # Comparison functions from here onwards for robustness over multiple frames
-
-    def compare_points(self, new_points):
-        """
-        Compare new points to last result.
-
-        Args:
-            new_points (list): Newly fitted lane points.
-
-        Returns:
-            bool: True if difference exceeds threshold, False otherwise.
-        """
-        if not self.last_results:
-            return False
-        last = np.array(self.last_results[-1])
-        curr = np.array(new_points)
-        diff = np.mean(np.linalg.norm(last - curr, axis=1))
-        return diff > self.diff_threshold
 
     def compare_polys_with_full_buffer(self):
         """
@@ -69,10 +52,31 @@ class LaneFilterBase:
         Returns:
             array-like: Coefficients to use.
         """
-        if not self.last_results:
+        if not self.buffer:
             return None
 
-        buf = np.asarray(self.last_results)
+        # Fast-path: if the last up to 5 buffered coeff vectors are essentially identical, use their mean
+        k = min(5, len(self.buffer))
+        if k >= 2:
+            last_k = np.asarray(self.buffer[-k:])
+            # per-coefficient span
+            coeff_range = np.max(last_k, axis=0) - np.min(last_k, axis=0)
+            # scale to handle small/large coefficients: use median magnitude
+            median_mag = np.maximum(np.abs(np.median(last_k, axis=0)), 1.0)
+            rel_range = coeff_range / median_mag
+
+            # tolerances: very tight relative tolerance and small absolute tolerance
+            rel_tol = 0.01 * max(
+                1.0, self.diff_threshold
+            )  # e.g. 1% scaled by diff_threshold
+            abs_tol = 1e-6
+
+            if np.all((coeff_range < abs_tol) | (rel_range < rel_tol)):
+                self.buffer.clear()
+                self.buffer.append(last_k)
+                return np.mean(last_k)
+
+        buf = np.asarray(self.buffer)
         N, D = buf.shape
 
         inliers = np.ones(N, dtype=bool)
@@ -96,13 +100,14 @@ class LaneFilterBase:
 
         # If all rejected, fall back to median
         if not np.any(inliers):
-            return np.median(buf, axis=0), np.arange(N)
+            return np.median(buf, axis=0)
 
         # Compute average using only inliers
         avg_coeffs = np.mean(buf[inliers], axis=0)
-        inlier_indices = np.where(inliers)[0]
 
-        return avg_coeffs, inlier_indices
+        self._logger.info(f"{self.lane} Lane Inliers Count: {np.sum(inliers)} / {N}")
+
+        return avg_coeffs
 
     def compare_polys(self, new_coeffs):
         """
@@ -115,10 +120,10 @@ class LaneFilterBase:
         Returns:
             array-like: Coefficients of the polynomial to use (may be blended or old).
         """
-        if not self.last_results:
+        if not self.buffer:
             return new_coeffs
 
-        last_coeffs = self.last_results[-1]
+        last_coeffs = self.buffer[-1]
 
         p_new = np.poly1d(np.asarray(new_coeffs))
         p_last = np.poly1d(last_coeffs)
@@ -171,3 +176,21 @@ class LaneFilterBase:
             self._logger.info(f" {self.lane}: {msg}, derivative diff={diff:.4f}")
 
         return result_coeffs
+
+    def compare_points(self, new_points):
+        """
+        Compare new points to last result.
+
+        Args:
+            new_points (list): Newly fitted lane points.
+
+        Returns:
+            bool: True if difference exceeds threshold, False otherwise.
+        """
+        if not self.buffer:
+            return False
+        last = np.array(self.buffer[-1])
+        curr = np.array(new_points)
+        diff = np.mean(np.linalg.norm(last - curr, axis=1))
+
+        return diff > self.diff_threshold

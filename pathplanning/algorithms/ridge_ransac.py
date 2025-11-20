@@ -39,8 +39,7 @@ class RidgeRansac(LaneFilterBase):
         self.update_buffer(coeffs)
 
         # use average of last results
-        coeffs, inliers = self.compare_polys_with_full_buffer()
-        self._logger.info(f"{self.lane} Lane Inliers: {inliers}")
+        coeffs = self.compare_polys_with_full_buffer()
 
         xs = np.linspace(x.min(), x.max(), 100)
         ys = np.polyval(coeffs, xs)
