@@ -29,9 +29,9 @@ class LaneFilterBase:
         """
         pass
 
-    def compare_results(self, new_points):
+    def compare_points(self, new_points):
         """
-        Compare new fit to last result.
+        Compare new points to last result.
 
         Args:
             new_points (list): Newly fitted lane points.
