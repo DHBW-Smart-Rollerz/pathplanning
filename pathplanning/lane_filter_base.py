@@ -62,6 +62,48 @@ class LaneFilterBase:
         diff = np.mean(np.linalg.norm(last - curr, axis=1))
         return diff > self.diff_threshold
 
+    def compare_polys_with_full_buffer(self):
+        """
+        Compare all poly coefficients in the whole buffer.
+
+        Returns:
+            array-like: Coefficients to use.
+        """
+        if not self.last_results:
+            return None
+
+        buf = np.asarray(self.last_results)
+        N, D = buf.shape
+
+        inliers = np.ones(N, dtype=bool)
+
+        # Process each coefficient independently
+        for dim in range(D):
+            coeffs = buf[:, dim]
+
+            median = np.median(coeffs)
+            mad = np.median(np.abs(coeffs - median))  # Median Absolute Deviation
+
+            # Avoid divide-by-zero
+            if mad < 1e-9:
+                continue
+
+            # Compute deviations (scaled)
+            deviation = np.abs(coeffs - median) / mad
+
+            # Mark outliers
+            inliers &= deviation < self.diff_threshold
+
+        # If all rejected, fall back to median
+        if not np.any(inliers):
+            return np.median(buf, axis=0), np.arange(N)
+
+        # Compute average using only inliers
+        avg_coeffs = np.mean(buf[inliers], axis=0)
+        inlier_indices = np.where(inliers)[0]
+
+        return avg_coeffs, inlier_indices
+
     def compare_polys(self, new_coeffs):
         """
         Compare new polynomial coefficients to last result.
@@ -71,7 +113,7 @@ class LaneFilterBase:
             new_intercept (float): Intercept of the newly fitted polynomial.
 
         Returns:
-            bool: True if difference exceeds threshold, False otherwise.
+            array-like: Coefficients of the polynomial to use (may be blended or old).
         """
         if not self.last_results:
             return new_coeffs

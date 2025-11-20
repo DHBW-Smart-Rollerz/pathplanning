@@ -32,16 +32,18 @@ class RidgeRansac(LaneFilterBase):
             x_poly, y
         )
 
-        coef = reg.estimator_.coef_
-        intercept = reg.estimator_.intercept_
-        poly_coeffs = np.concatenate((coef[::-1], [intercept]))
+        # flipping array and adding intercept so coeffs are highest to lowest order
+        coef_ = reg.estimator_.coef_
+        intercept_ = reg.estimator_.intercept_
+        coeffs = np.concatenate((coef_[::-1], [intercept_]))
+        self.update_buffer(coeffs)
 
-        # use last result if new fit is significantly different
-        poly_coeffs = self.compare_polys(poly_coeffs)
-        self.update_buffer(poly_coeffs)
+        # use average of last results
+        coeffs, inliers = self.compare_polys_with_full_buffer()
+        self._logger.info(f"{self.lane} Lane Inliers: {inliers}")
 
         xs = np.linspace(x.min(), x.max(), 100)
-        ys = np.polyval(poly_coeffs, xs)
+        ys = np.polyval(coeffs, xs)
 
         points = list(zip(xs, ys))
 
