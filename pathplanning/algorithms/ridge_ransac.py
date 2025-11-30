@@ -2,10 +2,8 @@ import numpy as np
 from sklearn.linear_model import RANSACRegressor, RidgeCV
 from sklearn.preprocessing import PolynomialFeatures
 
-from pathplanning.lane_filter_base import LaneFilterBase
 
-
-class RidgeRansac(LaneFilterBase):
+class RidgeRansac:
     """Ransac filter using RidgeCV as base."""
 
     def fit(self, lane):
@@ -37,16 +35,9 @@ class RidgeRansac(LaneFilterBase):
         intercept_ = reg.estimator_.intercept_
         coeffs = np.concatenate((coef_[::-1], [intercept_]))
 
-        # self.compare_polys(coeffs, )
-
-        self.update_buffer(coeffs)
+        # self.update_buffer(coeffs)
 
         # use average of last results
-        coeffs = self.compare_polys_with_full_buffer()
+        # coeffs = self.compare_polys_with_full_buffer()
 
-        xs = np.linspace(x.min(), x.max(), 100)
-        ys = np.polyval(coeffs, xs)
-
-        points = list(zip(xs, ys))
-
-        return points
+        return coeffs
