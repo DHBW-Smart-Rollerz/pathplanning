@@ -88,7 +88,7 @@ class LaneFilterBase:
 
         return avg_coeffs
 
-    def compare_polys(self, new_coeffs):
+    def compare_polys(self, coeffs1, coeffs2):
         """
         Compare new polynomial coefficients to last result.
 
@@ -97,64 +97,52 @@ class LaneFilterBase:
             new_intercept (float): Intercept of the newly fitted polynomial.
 
         Returns:
-            array-like: Coefficients of the polynomial to use (may be blended or old).
+            bool: True if difference is inside threshold, False otherwise.
         """
-        if not self.buffer:
-            return new_coeffs
+        c1 = np.asarray(coeffs1, dtype=float)
+        c2 = np.asarray(coeffs2, dtype=float)
 
-        last_coeffs = self.buffer[-1]
+        # Align lengths by padding the shorter (assumes coeffs are highest-degree-first as from np.polyfit)
+        if c1.size != c2.size:
+            if c1.size > c2.size:
+                c2 = np.pad(c2, (c1.size - c2.size, 0), mode="constant")
+            else:
+                c1 = np.pad(c1, (c2.size - c1.size, 0), mode="constant")
 
-        p_new = np.poly1d(np.asarray(new_coeffs))
-        p_last = np.poly1d(last_coeffs)
+        try:
+            p1 = np.poly1d(c1)
+            p2 = np.poly1d(c2)
 
-        dp_new = np.polyder(p_new)
-        dp_last = np.polyder(p_last)
+            dp1 = p1.deriv(1)
+            ddp1 = p1.deriv(2)
+            dp2 = p2.deriv(1)
+            ddp2 = p2.deriv(2)
 
-        c_new = np.asarray(dp_new.c, dtype=float)
-        c_last = np.asarray(dp_last.c, dtype=float)
+            # sample x over a reasonable range in front of the vehicle
+            x = np.linspace(0.0, 30.0, 61)
 
-        # pad shorter coeff array with zeros on the left (highest-order side)
-        if c_new.size > c_last.size:
-            c_last = np.pad(c_last, (c_new.size - c_last.size, 0), mode="constant")
-        elif c_last.size > c_new.size:
-            c_new = np.pad(c_new, (c_last.size - c_new.size, 0), mode="constant")
+            # curvature kappa = |y''| / (1 + y'^2)^(3/2)
+            denom1 = (1.0 + dp1(x) ** 2) ** 1.5
+            denom2 = (1.0 + dp2(x) ** 2) ** 1.5
 
-        diff = np.mean(np.abs(c_new - c_last))
+            # avoid divide-by-zero
+            denom1 = np.maximum(denom1, 1e-12)
+            denom2 = np.maximum(denom2, 1e-12)
 
-        # prepare full polynomial coeff arrays (not derivatives) and pad to same length
-        coeff_new = np.asarray(p_new.c, dtype=float)
-        coeff_last = np.asarray(p_last.c, dtype=float)
+            kappa1 = np.abs(ddp1(x)) / denom1
+            kappa2 = np.abs(ddp2(x)) / denom2
 
-        # decision based on diff
-        if diff < self.diff_threshold:
-            # accept new coefficients
-            result_coeffs = coeff_new
-            msg = "accept new coeffs"
-        elif diff < self.diff_threshold * 1.5:
-            # smoothly blend between new and old: weight goes from 1 at diff=0.2 to 0 at diff=0.5
-            weight_new = (0.5 - diff) / (0.5 - 0.2)
-            blended = weight_new * coeff_new + (1.0 - weight_new) * coeff_last
+            diff = float(np.mean(np.abs(kappa1 - kappa2)))
+        except Exception:
+            # Fallback: use coefficient Euclidean distance if curvature computation fails
+            diff = float(np.linalg.norm(c1 - c2))
 
-            # robustness: detect extreme per-coefficient outliers and fallback to median of the two
-            stacked = np.vstack([coeff_new, coeff_last])
-            med = np.median(stacked, axis=0)
-            mad = np.median(np.abs(stacked - med), axis=0) + 1e-8
-            diff_coeff = np.abs(coeff_new - coeff_last)
-            outlier_mask = diff_coeff > (5.0 * mad)
-            if np.any(outlier_mask):
-                blended[outlier_mask] = med[outlier_mask]
-
-            result_coeffs = blended
-            msg = f"blended coeffs (weight_new={weight_new:.3f})"
-        else:
-            # keep old coefficients
-            result_coeffs = coeff_last
-            msg = "REALLY BAD, reuse old coeffs"
-
-        if self._logger:
-            self._logger.info(f" {self.lane}: {msg}, derivative diff={diff:.4f}")
-
-        return result_coeffs
+        if self._logger is not None:
+            self._logger.debug(
+                f"{self.lane} curvature diff: {diff:.6f}, threshold: {self.diff_threshold}"
+            )
+        print(diff)
+        return diff > self.diff_threshold
 
     def compare_points(self, new_points):
         """

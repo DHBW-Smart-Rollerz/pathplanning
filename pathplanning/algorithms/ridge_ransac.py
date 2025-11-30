@@ -36,6 +36,9 @@ class RidgeRansac(LaneFilterBase):
         coef_ = reg.estimator_.coef_
         intercept_ = reg.estimator_.intercept_
         coeffs = np.concatenate((coef_[::-1], [intercept_]))
+
+        # self.compare_polys(coeffs, )
+
         self.update_buffer(coeffs)
 
         # use average of last results
