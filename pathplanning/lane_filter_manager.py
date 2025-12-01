@@ -95,3 +95,29 @@ class LaneFilterManager:
         self.buffer[lane_name].append(result)
         if len(self.buffer[lane_name]) > self.buffer_size:
             self.buffer[lane_name].pop(0)
+
+    def compare_coeffs(self, coeffs1, coeffs2, include_lowest_order=True):
+        """
+        Compare two sets of polynomial coefficients.
+
+        Args:
+            coeffs1 (list): First set of polynomial coefficients.
+            coeffs2 (list): Second set of polynomial coefficients.
+
+        Returns:
+            bool: True if the coefficients differ significantly, False otherwise.
+        """
+        coeffs1 = coeffs1.copy()
+        coeffs2 = coeffs2.copy()
+        if not include_lowest_order:
+            coeffs1[-1] = 0
+            coeffs2[-1] = 0
+        x_eval = np.linspace(0, max_x, 50)
+        y1 = np.polyval(coeffs1, x_eval)
+        y2 = np.polyval(coeffs2, x_eval)
+
+        diff = np.abs(y1 - y2)
+        max_deviation = np.max(diff)
+        mean_deviation = np.mean(diff)
+        # self._logger.info(f"Max deviation: {max_deviation}, Mean deviation: {mean_deviation}")
+        return max_deviation, mean_deviation
