@@ -72,70 +72,61 @@ class LaneFilterManager:
                     )
                     if mean_deviation > self.diff_threshold:
                         bad_fits.append(lane_name)
-                        # self._logger.info(f"{lane_name} lane fit rejected due to high deviation: {mean_deviation:.3f}. Comparing to other lanes.")
+                        self._logger.info(
+                            f"{lane_name} lane fit has high deviation: {mean_deviation:.3f}. Comparing to other lanes..."
+                        )
 
                 self.update_buffer(lane_name, coeffs)
 
-        if len(bad_fits) > 0:
-            _, mean_deviation_12 = self.compare_coeffs(
-                self.buffer["left"][-1],
-                self.buffer["center"][-1],
-                include_lowest_order=False,
-            )
-            _, mean_deviation_13 = self.compare_coeffs(
-                self.buffer["left"][-1],
-                self.buffer["right"][-1],
-                include_lowest_order=False,
-            )
-            _, mean_deviation_23 = self.compare_coeffs(
-                self.buffer["center"][-1],
-                self.buffer["right"][-1],
-                include_lowest_order=False,
-            )
+        max_deviation = 0.4
 
-            self._logger.info(
-                f"Inter-lane deviations: L1-L2: {mean_deviation_12:.3f}, L1-L3: {mean_deviation_13:.3f}, L2-L3: {mean_deviation_23:.3f}"
-            )
+        _, mean_deviation12 = (
+            self.compare_coeffs(self.buffer["left"][-1], self.buffer["center"][-1])
+            if self.buffer["left"] and self.buffer["center"]
+            else (None, None)
+        )
 
-            max_deviation = 0.25
-            if "left" in bad_fits:
-                if (
-                    mean_deviation_12 < max_deviation
-                    and mean_deviation_13 < max_deviation
-                ):
-                    self._logger.info(
-                        "Keeping left lane because it is consistent with other lanes."
+        _, mean_deviation23 = (
+            self.compare_coeffs(self.buffer["center"][-1], self.buffer["right"][-1])
+            if self.buffer["center"] and self.buffer["right"]
+            else (None, None)
+        )
+
+        _, mean_deviation13 = (
+            self.compare_coeffs(self.buffer["left"][-1], self.buffer["right"][-1])
+            if self.buffer["left"] and self.buffer["right"]
+            else (None, None)
+        )
+
+        self._logger.info(
+            f"Mean deviations between lanes: {mean_deviation12}, {mean_deviation23}, {mean_deviation13}"
+        )
+
+        if len(bad_fits) == 5:
+            bad_fit = bad_fits[0]
+            other_lanes = [
+                lane
+                for lane in self.buffer.keys()
+                if lane != bad_fit and self.buffer[lane]
+            ]
+            mean_devs = []
+
+            for lane in other_lanes:
+                if self.buffer[lane]:
+                    _, mean_dev = self.compare_coeffs(
+                        self.buffer[bad_fit][-1], self.buffer[lane][-1]
                     )
-                    self.buffer["left"] = [self.buffer["left"][-1]]
-                else:
-                    self.buffer["left"].pop()
-                    self._logger.info("Removing left lane fit from buffer.")
+                    mean_devs.append(mean_dev)
 
-            if "center" in bad_fits:
-                if (
-                    mean_deviation_12 < max_deviation
-                    and mean_deviation_23 < max_deviation
-                ):
-                    self._logger.info(
-                        "Keeping center lane because it is consistent with other lanes."
-                    )
-                    self.buffer["center"] = [self.buffer["center"][-1]]
-                else:
-                    self.buffer["center"].pop()
-                    self._logger.info("Removing center lane fit from buffer.")
-
-            if "right" in bad_fits:
-                if (
-                    mean_deviation_13 < max_deviation
-                    and mean_deviation_23 < max_deviation
-                ):
-                    self._logger.info(
-                        "Keeping right lane because it is consistent with other lanes."
-                    )
-                    self.buffer["right"] = [self.buffer["right"][-1]]
-                else:
-                    self.buffer["right"].pop()
-                    self._logger.info("Removing right lane fit from buffer.")
+            if all(dev < max_deviation for dev in mean_devs):
+                self._logger.info(
+                    f"{bad_fit} similar to both other lanes. Keeping value"
+                )
+            else:
+                self._logger.info(
+                    f"{bad_fit} different from other lanes. Removing value"
+                )
+                self.buffer[bad_fit].pop()
 
         coordinates = {"left": [], "center": [], "right": []}
 
@@ -174,11 +165,6 @@ class LaneFilterManager:
         Returns:
             bool: True if the coefficients differ significantly, False otherwise.
         """
-        coeffs1 = coeffs1.copy()
-        coeffs2 = coeffs2.copy()
-        if not include_lowest_order:
-            coeffs1[-1] = 0
-            coeffs2[-1] = 0
         x_eval = np.linspace(0, max_x, 50)
         y1 = np.polyval(coeffs1, x_eval)
         y2 = np.polyval(coeffs2, x_eval)
