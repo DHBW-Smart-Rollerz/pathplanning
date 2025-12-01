@@ -1,7 +1,9 @@
 import numpy as np
 from lane_msgs.msg import Lane
 
+min_x = 0.0
 max_x = 1.5
+lane_distances = 0.6  # meters between lanes
 
 
 def serialize_lane(Lane: Lane):
@@ -19,7 +21,7 @@ def serialize_lane(Lane: Lane):
         "points": [
             [point.x / 1000, point.y / 1000]
             for point in Lane.points
-            if (point.x / 1000) <= max_x
+            if (point.x / 1000) <= max_x and (point.x / 1000) >= min_x
         ],
         "detected": Lane.detected,
     }
@@ -28,7 +30,7 @@ def serialize_lane(Lane: Lane):
 class LaneFilterManager:
     """Management class for lane filtering algorithms."""
 
-    def __init__(self, lane_filters, buffer_size=5, diff_threshold=10.0, logger=None):
+    def __init__(self, lane_filters, buffer_size=5, diff_threshold=1.0, logger=None):
         """
         Initialize LaneFilter with specified lane filtering algorithms.
 
@@ -51,37 +53,102 @@ class LaneFilterManager:
         Returns:
             dict: Fitted lane points for each lane.
         """
-        coeff_list = {"left": [], "center": [], "right": []}
+        bad_fits = []
 
-        for lane_name in coeff_list.keys():
+        # fitting lanes to get coeffs
+        self._logger.info("Fitting lanes...")
+        for lane_name in self.buffer.keys():
             lane = getattr(lane_detection_result, lane_name)
             serialized_lane = serialize_lane(lane)
 
-            serialized_lane["points"] = [
-                p for p in serialized_lane["points"] if p[0] <= 3
-            ]
-
             if len(serialized_lane["points"]) >= 20 and lane.detected:
                 coeffs = self.lane_filters[lane_name].fit(serialized_lane)
-                coeff_list[lane_name] = coeffs
 
-                if self.buffer[lane_name] and not self.compare_polys(
-                    coeffs, self.buffer[lane_name][-1]
-                ):
-                    self._logger.info("big change")
-                    continue
+                if self.buffer[lane_name]:
+                    _, mean_deviation = (
+                        self.compare_coeffs(coeffs, self.buffer[lane_name][-1])
+                        if self.buffer[lane_name]
+                        else (None, None)
+                    )
+                    if mean_deviation > self.diff_threshold:
+                        bad_fits.append(lane_name)
+                        # self._logger.info(f"{lane_name} lane fit rejected due to high deviation: {mean_deviation:.3f}. Comparing to other lanes.")
 
                 self.update_buffer(lane_name, coeffs)
 
+        if len(bad_fits) > 0:
+            _, mean_deviation_12 = self.compare_coeffs(
+                self.buffer["left"][-1],
+                self.buffer["center"][-1],
+                include_lowest_order=False,
+            )
+            _, mean_deviation_13 = self.compare_coeffs(
+                self.buffer["left"][-1],
+                self.buffer["right"][-1],
+                include_lowest_order=False,
+            )
+            _, mean_deviation_23 = self.compare_coeffs(
+                self.buffer["center"][-1],
+                self.buffer["right"][-1],
+                include_lowest_order=False,
+            )
+
+            self._logger.info(
+                f"Inter-lane deviations: L1-L2: {mean_deviation_12:.3f}, L1-L3: {mean_deviation_13:.3f}, L2-L3: {mean_deviation_23:.3f}"
+            )
+
+            max_deviation = 0.25
+            if "left" in bad_fits:
+                if (
+                    mean_deviation_12 < max_deviation
+                    and mean_deviation_13 < max_deviation
+                ):
+                    self._logger.info(
+                        "Keeping left lane because it is consistent with other lanes."
+                    )
+                    self.buffer["left"] = [self.buffer["left"][-1]]
+                else:
+                    self.buffer["left"].pop()
+                    self._logger.info("Removing left lane fit from buffer.")
+
+            if "center" in bad_fits:
+                if (
+                    mean_deviation_12 < max_deviation
+                    and mean_deviation_23 < max_deviation
+                ):
+                    self._logger.info(
+                        "Keeping center lane because it is consistent with other lanes."
+                    )
+                    self.buffer["center"] = [self.buffer["center"][-1]]
+                else:
+                    self.buffer["center"].pop()
+                    self._logger.info("Removing center lane fit from buffer.")
+
+            if "right" in bad_fits:
+                if (
+                    mean_deviation_13 < max_deviation
+                    and mean_deviation_23 < max_deviation
+                ):
+                    self._logger.info(
+                        "Keeping right lane because it is consistent with other lanes."
+                    )
+                    self.buffer["right"] = [self.buffer["right"][-1]]
+                else:
+                    self.buffer["right"].pop()
+                    self._logger.info("Removing right lane fit from buffer.")
+
         coordinates = {"left": [], "center": [], "right": []}
 
-        for lane_name in coeff_list.keys():
-            coeffs = coeff_list[lane_name]
-            if len(coeffs) > 0:
-                xs = np.linspace(-0.5, max_x, 50)
-                ys = np.polyval(coeffs, xs)
-                points = list(zip(xs, ys))
-                coordinates[lane_name] = points
+        # generating points from coeffs
+        for lane_name in self.buffer.keys():
+            if not self.buffer[lane_name]:
+                continue
+
+            coeffs = np.mean(self.buffer[lane_name], axis=0)
+            xs = np.linspace(0, max_x, 50)
+            ys = np.polyval(coeffs, xs)
+            points = list(zip(xs, ys))
+            coordinates[lane_name] = points
 
         return coordinates
 
