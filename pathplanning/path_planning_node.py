@@ -17,7 +17,23 @@ from pathplanning.algorithms import (
     RidgeCV,
     RidgeRansac,
 )
-from pathplanning.lane_filter_manager import LaneFilterManager
+
+
+def serialize_lane(Lane: Lane):
+    """
+    Serialize lane information.
+    TODO: Should be moved to utils.
+
+    Arguments:
+        Lane -- Detected lane information.
+
+    Returns:
+        dict -- Serialized lane information.
+    """
+    return {
+        "points": [[point.x / 1000, point.y / 1000] for point in Lane.points],
+        "detected": Lane.detected,
+    }
 
 
 class PathPlanningNode(SmartyNode):
@@ -31,11 +47,10 @@ class PathPlanningNode(SmartyNode):
         )
 
         lane_names = ["left", "center", "right"]
-        self.lane_filters = {name: RidgeRansac() for name in lane_names}
-
-        self.lane_filter_manager = LaneFilterManager(
-            self.lane_filters, buffer_size=3, diff_threshold=0.15, logger=self._logger
-        )
+        self.lane_filters = {
+            name: RidgeRansac(name, logger=self._logger, diff_threshold=0.3)
+            for name in lane_names
+        }
 
         self.lane_detection_subscription = self.create_subscription(
             LaneDetectionResult,
@@ -75,16 +90,23 @@ class PathPlanningNode(SmartyNode):
         Arguments:
             result -- Lane detection result message.
         """
-        coordinates = self.lane_filter_manager.fit(result)
+        coordinates = {"left": [], "center": [], "right": []}
 
         for lane_name, publisher, color in self.lanes:
-            points = coordinates[lane_name]
-            if points:
-                self.publish_list_of_points(points, publisher, color)
-            else:
-                self.empty_marker_topic(publisher)
+            lane = getattr(result, lane_name)
+            serialized_lane = serialize_lane(lane)
 
-        return  # remove this line to enable midline publishing
+            serialized_lane["points"] = [
+                p for p in serialized_lane["points"] if p[0] <= 3
+            ]
+
+            if len(serialized_lane["points"]) >= 20 and lane.detected:
+                points = self.lane_filters[lane_name].fit(serialized_lane)
+            else:
+                points = []
+
+            coordinates[lane_name] = points
+            self.publish_list_of_points(points, publisher, color)
 
         # Calculate midlines between left-center and center-right
         if len(coordinates["left"]) > 0 and len(coordinates["center"]) > 0:

@@ -34,8 +34,7 @@ class RidgeRansac:
         coef_ = reg.estimator_.coef_
         intercept_ = reg.estimator_.intercept_
         coeffs = np.concatenate((coef_[::-1], [intercept_]))
-
-        # self.update_buffer(coeffs)
+        self.update_buffer(coeffs)
 
         # use average of last results
         # coeffs = self.compare_polys_with_full_buffer()
