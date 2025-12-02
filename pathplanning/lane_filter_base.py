@@ -44,6 +44,27 @@ class LaneFilterBase:
         if not self.buffer:
             return None
 
+        # Fast-path: if the last up to 5 buffered coeff vectors are essentially identical, use their mean
+        k = min(5, len(self.buffer))
+        if k >= 2:
+            last_k = np.asarray(self.buffer[-k:])
+            # per-coefficient span
+            coeff_range = np.max(last_k, axis=0) - np.min(last_k, axis=0)
+            # scale to handle small/large coefficients: use median magnitude
+            median_mag = np.maximum(np.abs(np.median(last_k, axis=0)), 1.0)
+            rel_range = coeff_range / median_mag
+
+            # tolerances: very tight relative tolerance and small absolute tolerance
+            rel_tol = 0.01 * max(
+                1.0, self.diff_threshold
+            )  # e.g. 1% scaled by diff_threshold
+            abs_tol = 1e-6
+
+            if np.all((coeff_range < abs_tol) | (rel_range < rel_tol)):
+                self.buffer.clear()
+                self.buffer.append(last_k)
+                return np.mean(last_k)
+
         buf = np.asarray(self.buffer)
         N, D = buf.shape
 

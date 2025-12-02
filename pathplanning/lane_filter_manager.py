@@ -30,17 +30,15 @@ def serialize_lane(Lane: Lane):
 class LaneFilterManager:
     """Management class for lane filtering algorithms."""
 
-    def __init__(
-        self, filter, lane_names, buffer_size=5, diff_threshold=1.0, logger=None
-    ):
+    def __init__(self, lane_filters, buffer_size=5, diff_threshold=1.0, logger=None):
         """
         Initialize LaneFilter with specified lane filtering algorithms.
 
         Args:
             lane_filters (dict): Dictionary mapping lane names to their respective filter instances.
         """
-        self.lane_filter = filter
-        self.buffer = {lane: [] for lane in lane_names}
+        self.lane_filters = lane_filters
+        self.buffer = {lane: [] for lane in lane_filters.keys()}
         self.buffer_size = buffer_size
         self.diff_threshold = diff_threshold
         self._logger = logger
@@ -64,7 +62,7 @@ class LaneFilterManager:
             serialized_lane = serialize_lane(lane)
 
             if len(serialized_lane["points"]) >= 20 and lane.detected:
-                coeffs = self.lane_filter.fit(serialized_lane)
+                coeffs = self.lane_filters[lane_name].fit(serialized_lane)
 
                 if self.buffer[lane_name]:
                     _, mean_deviation = (
@@ -81,6 +79,28 @@ class LaneFilterManager:
                 self.update_buffer(lane_name, coeffs)
 
         max_deviation = 0.4
+
+        _, mean_deviation12 = (
+            self.compare_coeffs(self.buffer["left"][-1], self.buffer["center"][-1])
+            if self.buffer["left"] and self.buffer["center"]
+            else (None, None)
+        )
+
+        _, mean_deviation23 = (
+            self.compare_coeffs(self.buffer["center"][-1], self.buffer["right"][-1])
+            if self.buffer["center"] and self.buffer["right"]
+            else (None, None)
+        )
+
+        _, mean_deviation13 = (
+            self.compare_coeffs(self.buffer["left"][-1], self.buffer["right"][-1])
+            if self.buffer["left"] and self.buffer["right"]
+            else (None, None)
+        )
+
+        self._logger.info(
+            f"Mean deviations between lanes: {mean_deviation12}, {mean_deviation23}, {mean_deviation13}"
+        )
 
         if len(bad_fits) == 5:
             bad_fit = bad_fits[0]
