@@ -4,6 +4,9 @@ import numpy as np
 class LaneFilterBase:
     """Base for filtering lanes with useful functions to use."""
 
+    min_x = 0.0
+    max_x = 1.5
+
     def __init__(
         self, lane="unknown", buffer_size=10, diff_threshold=10.0, logger=None
     ):
@@ -31,6 +34,17 @@ class LaneFilterBase:
             list: List of points representing the fitted lane.
         """
         pass
+
+    def update_buffer(self, result):
+        """
+        Update the buffer with new points.
+
+        Args:
+            result (dict): Newly fitted lane result. Result may be points or coeffs and intercept.
+        """
+        self.buffer.append(result)
+        if len(self.buffer) > self.buffer_size:
+            self.buffer.pop(0)
 
     # Comparison functions from here onwards for robustness over multiple frames
 

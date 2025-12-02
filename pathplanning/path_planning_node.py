@@ -48,7 +48,9 @@ class PathPlanningNode(SmartyNode):
 
         lane_names = ["left", "center", "right"]
         self.lane_filters = {
-            name: RidgeRansac(name, logger=self._logger, diff_threshold=0.3)
+            name: RidgeRansac(
+                name, logger=self._logger, buffer_size=5, diff_threshold=0.3
+            )
             for name in lane_names
         }
 
@@ -107,6 +109,8 @@ class PathPlanningNode(SmartyNode):
 
             coordinates[lane_name] = points
             self.publish_list_of_points(points, publisher, color)
+
+        return
 
         # Calculate midlines between left-center and center-right
         if len(coordinates["left"]) > 0 and len(coordinates["center"]) > 0:
