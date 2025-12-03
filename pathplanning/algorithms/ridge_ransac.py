@@ -18,6 +18,8 @@ class RidgeRansac(LaneFilterBase):
         Returns:
             list: List of points representing the fitted lane.
         """
+        super().fit(lane)
+
         x = np.array([point[0] for point in lane["points"]])
         y = np.array([point[1] for point in lane["points"]])
 
@@ -40,7 +42,7 @@ class RidgeRansac(LaneFilterBase):
 
         x_vals = np.linspace(self.min_x, self.max_x, num=50)
         y_vals = np.polyval(coeffs, x_vals)
-        points = zip(x_vals, y_vals)
+        points = list(map(list, zip(x_vals, y_vals)))
 
         # use average of last results
         # coeffs = self.compare_polys_with_full_buffer()
