@@ -20,6 +20,9 @@ class RidgeRansac(LaneFilterBase):
         """
         super().fit(lane)
 
+        if len(lane["points"]) < 20:
+            return []
+
         x = np.array([point[0] for point in lane["points"]])
         y = np.array([point[1] for point in lane["points"]])
 

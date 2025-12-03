@@ -36,7 +36,7 @@ class LaneFilterBase:
         # Remove points from lane where x is within min_x and max_x
         if "points" in lane:
             filtered_points = [
-                pt for pt in lane["points"] if not (self.min_x <= pt[0] <= self.max_x)
+                pt for pt in lane["points"] if (self.min_x <= pt[0] <= self.max_x)
             ]
             lane["points"] = filtered_points
 

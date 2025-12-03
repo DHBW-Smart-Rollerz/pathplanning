@@ -102,7 +102,7 @@ class PathPlanningNode(SmartyNode):
                 p for p in serialized_lane["points"] if p[0] <= 3
             ]
 
-            if len(serialized_lane["points"]) >= 20 and lane.detected:
+            if lane.detected:
                 points = self.lane_filters[lane_name].fit(serialized_lane)
             else:
                 points = []
