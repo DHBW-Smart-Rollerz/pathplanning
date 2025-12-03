@@ -14,9 +14,10 @@ from pathplanning.algorithms import (
     HuberRegression,
     KalmanFilter,
     ParticleFilter,
-    RidgeCV,
+    RidgeCVRegression,
     RidgeRansac,
 )
+from pathplanning.algorithms.correctness_function import lane_fit_quality_score
 
 
 def serialize_lane(Lane: Lane):
@@ -104,13 +105,23 @@ class PathPlanningNode(SmartyNode):
 
             if lane.detected:
                 points = self.lane_filters[lane_name].fit(serialized_lane)
+
+                # Test correctness score
+                lane_points = [
+                    p for p in serialized_lane["points"] if (0.0 <= p[0] <= 1.5)
+                ]
+                score, metrics = lane_fit_quality_score(lane_points, points)
+                print(lane_name)
+                print(f"Correctness Score: {score:.3f}")
+                print(f"Metrics: {metrics}")
+
             else:
                 points = []
 
             coordinates[lane_name] = points
             self.publish_list_of_points(points, publisher, color)
 
-        return
+        # return
 
         # Calculate midlines between left-center and center-right
         if len(coordinates["left"]) > 0 and len(coordinates["center"]) > 0:

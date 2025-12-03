@@ -5,7 +5,7 @@ from sklearn.preprocessing import PolynomialFeatures
 from pathplanning.lane_filter_base import LaneFilterBase
 
 
-class RidgeCV(LaneFilterBase):
+class RidgeCVRegression(LaneFilterBase):
     """Raw RidgeCV Regression algorithm."""
 
     def fit(self, lane):
