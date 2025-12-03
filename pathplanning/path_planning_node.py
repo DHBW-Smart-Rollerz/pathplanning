@@ -14,7 +14,7 @@ from pathplanning.algorithms import (
     HuberRegression,
     KalmanFilter,
     ParticleFilter,
-    RidgeCV,
+    RidgeCVRegression,
     RidgeRansac,
 )
 
