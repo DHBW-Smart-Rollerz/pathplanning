@@ -60,7 +60,7 @@ class PathPlanningNode(SmartyNode):
         lane_names = ["left", "center", "right"]
         self.lane_filters = {
             name: RidgeRansac(
-                name, logger=self._logger, buffer_size=5, diff_threshold=0.3
+                name, logger=self._logger, buffer_size=5, diff_threshold=0.5
             )
             for name in lane_names
         }
