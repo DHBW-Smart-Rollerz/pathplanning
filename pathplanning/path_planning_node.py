@@ -18,6 +18,16 @@ from pathplanning.algorithms import (
     RidgeRansac,
 )
 
+"""
+TODO
+
+- simplify lane filter
+- include state estimation for accepting turns faster
+- accept all lanes when buffer is empty (lots of bad frames successively)
+
+- improve perfomance (min 30 fps / max 33ms)
+"""
+
 
 def serialize_lane(Lane: Lane):
     """
