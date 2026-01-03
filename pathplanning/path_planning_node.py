@@ -24,6 +24,7 @@ TODO
 - simplify lane filter
 - include state estimation for accepting turns faster
 - accept all lanes when buffer is empty (lots of bad frames successively)
+- improve path creation between lanes
 
 - improve perfomance (min 30 fps / max 33ms)
 """
