@@ -104,6 +104,6 @@ class LaneFilterBase:
         if not self.buffer:
             return True
 
-        diff = abs(coeffs[-1] - self.buffer[-1][-1])
+        diff = abs(coeffs[0] - self.buffer[-1][0])
 
         return diff < self.diff_threshold
