@@ -20,7 +20,7 @@ class RidgeRansac(LaneFilterBase):
         """
         super().fit(lane)
 
-        if len(lane["points"]) < 20:
+        if len(lane["points"]) < 10:
             return []
 
         x = np.array([point[0] for point in lane["points"]])
@@ -45,6 +45,9 @@ class RidgeRansac(LaneFilterBase):
             self.update_buffer(coeffs)
         else:
             coeffs = self.buffer[-1]
+            self._logger.debug(f"{self.lane} lane has big deviation, using last result")
+
+            self.buffer.pop(0)  # "reset" when last 5 frames where denied
 
         # increase smoothness by calculating average
         coeffs = self.get_weighted_buffer_average()
