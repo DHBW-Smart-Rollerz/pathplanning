@@ -1,4 +1,5 @@
 import numpy as np
+from numpy.polynomial import polynomial as pol
 from sklearn.linear_model import RANSACRegressor, RidgeCV
 from sklearn.preprocessing import PolynomialFeatures
 
@@ -27,11 +28,11 @@ class RidgeRansac(LaneFilterBase):
         y = np.array([point[1] for point in lane["points"]])
 
         base = PolyfitBase()
-        reg = RANSACRegressor(base, residual_threshold=0.25, min_samples=5).fit(x, y)
+        reg = RANSACRegressor(base, min_samples=10).fit(x, y)
 
-        coeffs = reg.estimator_.coeffs  # order is highest to lowest
+        coeffs = reg.estimator_.coeffs  # order is lowest to highest
 
-        if self.compare_new_coeff_derivative(coeffs):
+        if True or self.compare_new_coeff_derivative(coeffs):
             self.update_buffer(coeffs)
         else:
             coeffs = self.buffer[-1]
@@ -41,6 +42,7 @@ class RidgeRansac(LaneFilterBase):
 
         # increase smoothness by calculating average
         coeffs = self.get_weighted_buffer_average()
+        reg.estimator_.coeffs = coeffs
 
         # generate sample points
         x_vals = np.linspace(self.min_x, self.max_x, 50)
@@ -74,7 +76,7 @@ class PolyfitBase:
             X (array-like): X-values.
             y (array-like): Y-values.
         """
-        self.coeffs = np.polyfit(X.ravel(), y, self.degree)
+        self.coeffs = pol.polyfit(X.ravel(), y, self.degree)
 
     def get_params(self, deep=False):
         """
@@ -106,9 +108,7 @@ class PolyfitBase:
         Returns:
             array-like: Predicted Y-values.
         """
-        poly_eqn = np.poly1d(self.coeffs)
-        y_hat = poly_eqn(X.ravel())
-        return y_hat
+        return pol.polyval(X.ravel(), self.coeffs)
 
     def score(self, X, y):
         """
