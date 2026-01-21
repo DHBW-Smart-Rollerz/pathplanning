@@ -121,6 +121,9 @@ class PathPlanningNode(SmartyNode):
             coordinates[lane_name] = points
             self.publish_list_of_points(points, publisher, color)
 
+        state = self.get_parameter("state").get_parameter_value().integer_value
+        print(f"State: {state}")
+
         return
 
         # Calculate midlines between left-center and center-right
