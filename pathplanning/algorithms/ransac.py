@@ -24,15 +24,25 @@ class RidgeRansac(LaneFilterBase):
         if len(lane["points"]) < 10:
             return []
 
-        x = np.array([point[0] for point in lane["points"]]).reshape(-1, 1)
+        x = np.array(
+            [point[0] for point in lane["points"]]
+        )  # .reshape(-1, 1) # only used for custom estimator
         y = np.array([point[1] for point in lane["points"]])
 
-        base = PolyfitBase()
-        reg = RANSACRegressor(base, min_samples=10).fit(x, y)
+        degree = 3
+
+        poly = PolynomialFeatures(degree, include_bias=False)
+
+        x_poly = poly.fit_transform(x.reshape(-1, 1))
+
+        base = RidgeCV()
+        reg = RANSACRegressor(base, residual_threshold=0.25, min_samples=5).fit(
+            x_poly, y
+        )
 
         coeffs = reg.estimator_.coeffs  # order is lowest to highest
 
-        if True or self.compare_new_coeff_derivative(coeffs):
+        if self.compare_new_coeff_derivative(coeffs):
             self.update_buffer(coeffs)
         else:
             coeffs = self.buffer[-1]
