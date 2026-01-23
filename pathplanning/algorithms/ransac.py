@@ -51,9 +51,10 @@ class RidgeRansac(LaneFilterBase):
             self.buffer.pop(0)  # "reset" when last 5 frames where denied
             if len(self.buffer) == 0:
                 self._logger.debug(f"{self.lane}: buffer empty, reset")
-                self.update_buffer(coeffs)
+                # self.update_buffer(coeffs)
         # increase smoothness by calculating average
-        coeffs = self.get_weighted_buffer_average()
+        if len(self.buffer) != 0:
+            coeffs = self.get_weighted_buffer_average()
 
         points = self.sample_points_from_poly(coeffs=coeffs)
 

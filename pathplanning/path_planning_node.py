@@ -156,7 +156,7 @@ class PathPlanningNode(SmartyNode):
                 )
 
             left_path_msg = Float32MultiArray()
-            left_path_msg.data = left_coeffs.tolist()
+            left_path_msg.data = left_coeffs[::-1].tolist()
             self.left_path_publisher.publish(left_path_msg)
         else:
             self.empty_marker_topic(self.left_path_debug_publisher)
@@ -174,7 +174,7 @@ class PathPlanningNode(SmartyNode):
                 )
 
             right_path_msg = Float32MultiArray()
-            right_path_msg.data = right_coeffs.tolist()
+            right_path_msg.data = right_coeffs[::-1].tolist()
             self.right_path_publisher.publish(right_path_msg)
         else:
             self.empty_marker_topic(self.right_path_debug_publisher)
@@ -189,13 +189,20 @@ class PathPlanningNode(SmartyNode):
         Returns:
             tuple: Tuple containing (x, y, theta) representing the reference point coordinates and angle.
         """
-        p = np.poly1d(coefficients)
-        x = 100
+        # self.get_logger().info(
+        #     f"Coefficients: {coefficients}, Reversed: {coefficients[::-1]}"
+        # )
+        p = np.poly1d(coefficients[::-1])
+        x = 0.1
         y = p(x)
-        theta = -1 * math.atan(
-            -2 * coefficients[0] * (y / 1000) - coefficients[1]
+        y__temp = y
+        theta = +1 * math.atan(
+            3 * coefficients[3] * ((y__temp) ** 2)
+            + 2 * coefficients[2] * (y__temp)
+            + coefficients[1]
         )  # Tom fragen
-        return x, y, theta
+        # self.get_logger().info(f"Ref Point: x: {x}, y: {y}, theta: {theta}")
+        return x * 1000, y * 1000, theta
 
     def calculate_ref_point(self, coeffs):
         """Calculate the reference point for the vehicle's trajectory based on its current state."""
