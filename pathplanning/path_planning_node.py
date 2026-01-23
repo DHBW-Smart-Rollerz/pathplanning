@@ -1,12 +1,15 @@
 # Copyright (c) 2025 Smart Rollerz e.V.
 # All rights reserved.
 
+import math
+
 import numpy as np
 import rclpy
 import visualization_msgs
-from geometry_msgs.msg import Point
+from geometry_msgs.msg import Point, Vector3
 from lane_msgs.msg import Lane, LaneDetectionResult
 from smarty_utils.smarty_node import SmartyNode
+from std_msgs.msg import Float32MultiArray
 from visualization_msgs.msg import Marker
 
 from pathplanning.algorithms import (
@@ -57,6 +60,10 @@ class PathPlanningNode(SmartyNode):
             "pathplanning",
         )
 
+        # Configure logging level based on debug parameter
+        if self._debug:
+            self._logger.set_level(rclpy.logging.LoggingSeverity.DEBUG)
+
         lane_names = ["left", "center", "right"]
         self.lane_filters = {
             name: RidgeRansac(
@@ -90,6 +97,17 @@ class PathPlanningNode(SmartyNode):
             visualization_msgs.msg.Marker, "/path_planning/debug/right_path", 10
         )
 
+        self.left_path_publisher = self.create_publisher(
+            Float32MultiArray, "/path_planning/target/left", 10
+        )
+        self.right_path_publisher = self.create_publisher(
+            Float32MultiArray, "/path_planning/target/right", 10
+        )
+
+        self.ref_point_publisher = self.create_publisher(
+            Vector3, "/path_planning/target/pose", 10
+        )
+
         self.lanes = [
             ("left", self.left_lane_debug_publisher, (255, 0, 0)),
             ("center", self.center_lane_debug_publisher, (0, 255, 0)),
@@ -104,6 +122,7 @@ class PathPlanningNode(SmartyNode):
             result -- Lane detection result message.
         """
         coordinates = {"left": [], "center": [], "right": []}
+        coeffs_list = {"left": [], "center": [], "right": []}
 
         for lane_name, publisher, color in self.lanes:
             lane = getattr(result, lane_name)
@@ -114,40 +133,84 @@ class PathPlanningNode(SmartyNode):
             ]
 
             if lane.detected:
-                points = self.lane_filters[lane_name].fit(serialized_lane)
+                coeffs, points = self.lane_filters[lane_name].fit(serialized_lane)
+                coeffs_list[lane_name] = coeffs
             else:
-                points = []
+                coeffs, points = [], []
 
             coordinates[lane_name] = points
-            self.publish_list_of_points(points, publisher, color)
+            if self._debug:
+                self.publish_list_of_points(points, publisher, color)
 
-        state = self.get_parameter("state").get_parameter_value().integer_value
-        print(f"State: {state}")
-
-        return
+        left_coeffs = []
+        right_coeffs = []
 
         # Calculate midlines between left-center and center-right
         if len(coordinates["left"]) > 0 and len(coordinates["center"]) > 0:
-            mid_left_center = [
-                [(l[0] + c[0]) / 2, (l[1] + c[1]) / 2]
-                for l, c in zip(coordinates["left"], coordinates["center"])
-            ]
-            self.publish_list_of_points(
-                mid_left_center, self.left_path_debug_publisher, (255, 255, 255)
-            )
+            left_coeffs = (coeffs_list["left"] + coeffs_list["center"]) / 2
+            if self._debug:
+                self.publish_list_of_points(
+                    self.lane_filters["right"].sample_points_from_poly(left_coeffs),
+                    self.left_path_debug_publisher,
+                    color=(255, 255, 255),
+                )
+
+            left_path_msg = Float32MultiArray()
+            left_path_msg.data = left_coeffs.tolist()
+            self.left_path_publisher.publish(left_path_msg)
         else:
             self.empty_marker_topic(self.left_path_debug_publisher)
 
         if len(coordinates["center"]) > 0 and len(coordinates["right"]) > 0:
-            mid_center_right = [
-                [(c[0] + r[0]) / 2, (c[1] + r[1]) / 2]
-                for c, r in zip(coordinates["center"], coordinates["right"])
-            ]
-            self.publish_list_of_points(
-                mid_center_right, self.right_path_debug_publisher, (255, 255, 255)
-            )
+            right_coeffs = (coeffs_list["center"] + coeffs_list["right"]) / 2
+
+            self.calculate_ref_point(right_coeffs)
+
+            if self._debug:
+                self.publish_list_of_points(
+                    self.lane_filters["right"].sample_points_from_poly(right_coeffs),
+                    self.right_path_debug_publisher,
+                    color=(255, 255, 255),
+                )
+
+            right_path_msg = Float32MultiArray()
+            right_path_msg.data = right_coeffs.tolist()
+            self.right_path_publisher.publish(right_path_msg)
         else:
             self.empty_marker_topic(self.right_path_debug_publisher)
+
+    def ref_point_controller(self, coefficients):
+        """
+        Determines reference points for the controller based on the provided polynomial coefficients.
+
+        Args:
+            coefficients (list): List of coefficients representing the polynomial.
+
+        Returns:
+            tuple: Tuple containing (x, y, theta) representing the reference point coordinates and angle.
+        """
+        p = np.poly1d(coefficients)
+        x = 100
+        y = p(x)
+        theta = -1 * math.atan(
+            -2 * coefficients[0] * (y / 1000) - coefficients[1]
+        )  # Tom fragen
+        return x, y, theta
+
+    def calculate_ref_point(self, coeffs):
+        """Calculate the reference point for the vehicle's trajectory based on its current state."""
+        lane_coefficients = coeffs
+
+        if any(lane_coefficients):
+            ref_x, ref_y, theta = self.ref_point_controller(lane_coefficients)
+            self.drive_point_ruling = (int(ref_x), int(ref_y))
+
+            if theta <= 0.3:
+                theta = theta / 4
+
+            self.ref_point_publisher.publish(
+                Vector3(y=ref_y / 1000, x=ref_x / 1000, z=theta)
+            )
 
     def publish_list_of_points(self, points, publisher, color=(1.0, 1.0, 1.0)):
         """

@@ -91,7 +91,7 @@ class LaneFilterBase:
 
         return avg_coeffs
 
-    def compare_new_coeff_derivative(self, coeffs):
+    def compare_to_new_coeff(self, coeffs):
         """
         Compares newly fitted coeffs to the last result.
 

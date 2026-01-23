@@ -62,8 +62,6 @@ class LanesToPointCloudNode(Node):
         Args:
             msg (lane_msgs.msg.LaneDetectionResult): Lane detection result message.
         """
-        self.get_logger().info("Lane detected!")
-
         # change points from millimeter to meter
         for lane in (msg.left, msg.center, msg.right):
             if getattr(lane, "detected", False):

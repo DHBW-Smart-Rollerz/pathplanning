@@ -22,11 +22,9 @@ class RidgeRansac(LaneFilterBase):
         super().fit(lane)
 
         if len(lane["points"]) < 10:
-            return []
+            return [], []
 
-        x = np.array(
-            [point[0] for point in lane["points"]]
-        )  # .reshape(-1, 1) # only used for custom estimator
+        x = np.array([point[0] for point in lane["points"]])
         y = np.array([point[1] for point in lane["points"]])
 
         degree = 3
@@ -40,27 +38,26 @@ class RidgeRansac(LaneFilterBase):
             x_poly, y
         )
 
-        coeffs = reg.estimator_.coeffs  # order is lowest to highest
+        coef_ = reg.estimator_.coef_
+        intercept_ = reg.estimator_.intercept_
+        coeffs = np.concatenate(([intercept_], coef_))  # lowest to highest order
 
-        if self.compare_new_coeff_derivative(coeffs):
+        if self.compare_to_new_coeff(coeffs):
             self.update_buffer(coeffs)
         else:
             coeffs = self.buffer[-1]
-            self._logger.debug(f"{self.lane} lane has big deviation, using last result")
+            self._logger.debug(f"{self.lane}: using last result")
 
             self.buffer.pop(0)  # "reset" when last 5 frames where denied
-
+            if len(self.buffer) == 0:
+                self._logger.debug(f"{self.lane}: buffer empty, reset")
+                self.update_buffer(coeffs)
         # increase smoothness by calculating average
         coeffs = self.get_weighted_buffer_average()
-        reg.estimator_.coeffs = coeffs
 
-        # generate sample points
-        x_vals = np.linspace(self.min_x, self.max_x, 50)
-        y_vals = reg.predict(x_vals.reshape(-1, 1))
+        points = self.sample_points_from_poly(coeffs=coeffs)
 
-        points = list(map(list, zip(x_vals, y_vals)))
-
-        return points
+        return coeffs, points
 
 
 from sklearn.metrics import mean_squared_error  # temp
