@@ -24,10 +24,8 @@ from pathplanning.algorithms import (
 """
 TODO
 
-- simplify lane filter
+- simulate/clone lanes when too few points are detected
 - include state estimation for accepting turns faster
-- accept all lanes when buffer is empty (lots of bad frames successively)
-- improve path creation between lanes
 
 - improve perfomance (min 30 fps / max 33ms)
 """
