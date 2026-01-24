@@ -9,7 +9,7 @@ from pathplanning.lane_filter_base import LaneFilterBase
 class RidgeRansac(LaneFilterBase):
     """Ransac filter using RidgeCV as base."""
 
-    def fit(self, lane):
+    def fit(self, lane, crossing_state):
         """
         Fit.
 
@@ -41,6 +41,10 @@ class RidgeRansac(LaneFilterBase):
         coef_ = reg.estimator_.coef_
         intercept_ = reg.estimator_.intercept_
         coeffs = np.concatenate(([intercept_], coef_))  # lowest to highest order
+
+        if crossing_state != 0:
+            curvature = self.check_crossing_direction(coeffs, crossing_state)
+            self._logger.debug(f"{self.lane}: {curvature}")
 
         if self.compare_to_new_coeff(coeffs):
             self.update_buffer(coeffs)

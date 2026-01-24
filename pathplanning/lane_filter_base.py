@@ -43,6 +43,38 @@ class LaneFilterBase:
             ]
             lane["points"] = filtered_points
 
+    def check_crossing_direction(self, coeffs, crossing_state):
+        """
+        Check if the fitted lane matches the desired crossing direction.
+
+        Args:
+            coeffs (array-like): Coefficients of the fitted polynomial.
+            crossing_state (int): Desired crossing state (-1: left, 0: straight, 1: right).
+
+        Returns:
+            bool: True if the lane matches the desired direction, False otherwise.
+        """
+        p = np.polynomial.Polynomial(coeffs)
+        f2 = p.deriv(2)(0.8)
+
+        tolerance = 0.2
+
+        if f2 > tolerance:
+            return "left"
+        elif f2 < -tolerance:
+            return "right"
+        else:
+            return "straight"
+
+        return f2
+        # left turn
+        if crossing_state == -1:
+            pass
+
+        # right turn
+        elif crossing_state == 1:
+            pass
+
     def update_buffer(self, result):
         """
         Update the buffer with new points.
@@ -106,6 +138,6 @@ class LaneFilterBase:
         if not self.buffer:
             return True
 
-        diff = abs(coeffs[0] - self.buffer[-1][0])
+        diff = abs(coeffs[-1] - self.buffer[-1][-1])
 
         return diff < self.diff_threshold

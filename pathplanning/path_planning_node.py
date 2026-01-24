@@ -58,6 +58,8 @@ class PathPlanningNode(SmartyNode):
             "pathplanning",
         )
 
+        self.declare_parameter("crossing_state", 0)
+
         # Configure logging level based on debug parameter
         if self._debug:
             self._logger.set_level(rclpy.logging.LoggingSeverity.DEBUG)
@@ -122,6 +124,10 @@ class PathPlanningNode(SmartyNode):
         coordinates = {"left": [], "center": [], "right": []}
         coeffs_list = {"left": [], "center": [], "right": []}
 
+        crossing_state = (
+            self.get_parameter("crossing_state").get_parameter_value().integer_value
+        )
+
         for lane_name, publisher, color in self.lanes:
             lane = getattr(result, lane_name)
             serialized_lane = serialize_lane(lane)
@@ -131,12 +137,14 @@ class PathPlanningNode(SmartyNode):
             ]
 
             if lane.detected:
-                coeffs, points = self.lane_filters[lane_name].fit(serialized_lane)
-                coeffs_list[lane_name] = coeffs
+                coeffs, points = self.lane_filters[lane_name].fit(
+                    serialized_lane, crossing_state
+                )
             else:
                 coeffs, points = [], []
 
             coordinates[lane_name] = points
+            coeffs_list[lane_name] = coeffs
             if self._debug:
                 self.publish_list_of_points(points, publisher, color)
 
