@@ -17,8 +17,8 @@ from pathplanning.algorithms import (
     HuberRegression,
     KalmanFilter,
     ParticleFilter,
+    Ransac,
     RidgeCVRegression,
-    RidgeRansac,
 )
 
 """
@@ -64,10 +64,20 @@ class PathPlanningNode(SmartyNode):
         if self._debug:
             self._logger.set_level(rclpy.logging.LoggingSeverity.DEBUG)
 
+        self.min_x = -1.0
+        self.max_x = 1.0
+
+        self.x_vals = np.linspace(self.min_x, self.max_x, num=50)
+
         lane_names = ["left", "center", "right"]
         self.lane_filters = {
-            name: RidgeRansac(
-                name, logger=self._logger, buffer_size=5, diff_threshold=0.5
+            name: Ransac(
+                self.min_x,
+                self.max_x,
+                name,
+                logger=self._logger,
+                buffer_size=5,
+                diff_threshold=0.5,
             )
             for name in lane_names
         }
@@ -121,7 +131,8 @@ class PathPlanningNode(SmartyNode):
         Arguments:
             result -- Lane detection result message.
         """
-        coordinates = {"left": [], "center": [], "right": []}
+        self._logger.debug("Received!")
+
         coeffs_list = {"left": [], "center": [], "right": []}
 
         crossing_state = (
@@ -137,53 +148,103 @@ class PathPlanningNode(SmartyNode):
             ]
 
             if lane.detected:
-                coeffs, points = self.lane_filters[lane_name].fit(
+                coeffs_list[lane_name] = self.lane_filters[lane_name].fit(
                     serialized_lane, crossing_state
                 )
-            else:
-                coeffs, points = [], []
 
-            coordinates[lane_name] = points
-            coeffs_list[lane_name] = coeffs
-            if self._debug:
+        empty_lanes = [
+            lane_name for lane_name, coeffs in coeffs_list.items() if len(coeffs) == 0
+        ]
+
+        if len(empty_lanes) == 3:
+            self._logger.warning("No lanes found! Driving straight")
+            empty_lanes.clear()
+            coeffs_list["center"] = np.array([0.0, 0.0, 0.0, 0.0])
+            coeffs_list["left"] = np.array([0.7, 0.0, 0.0, 0.0])
+            coeffs_list["right"] = np.array([-0.7, 0.0, 0.0, 0.0])
+
+        if "left" in empty_lanes:
+            self._logger.debug("Left lane missing, simulating...")
+            if "center" not in empty_lanes:
+                coeffs_list["left"] = coeffs_list["center"].copy()
+                coeffs_list["left"][0] += 0.7
+            elif "right" not in empty_lanes:
+                coeffs_list["left"] = coeffs_list["right"].copy()
+                coeffs_list["left"][0] += 1.4
+
+        if "right" in empty_lanes:
+            self._logger.debug("Right lane missing, simulating...")
+            if "center" not in empty_lanes:
+                coeffs_list["right"] = coeffs_list["center"].copy()
+                coeffs_list["right"][0] -= 0.7
+            elif "left" not in empty_lanes:
+                coeffs_list["right"] = coeffs_list["left"].copy()
+                coeffs_list["right"][0] -= 1.4
+
+        if "center" in empty_lanes:
+            self._logger.debug("Center lane missing, simulating...")
+            if "left" not in empty_lanes and "right" not in empty_lanes:
+                coeffs_list["center"] = (coeffs_list["left"] + coeffs_list["right"]) / 2
+            elif "left" not in empty_lanes:
+                coeffs_list["center"] = coeffs_list["left"].copy()
+                coeffs_list["center"][0] -= 0.7
+            elif "right" not in empty_lanes:
+                coeffs_list["center"] = coeffs_list["right"].copy()
+                coeffs_list["center"][0] += 0.7
+
+        if self._debug:
+            for lane_name, publisher, color in self.lanes:
+                coeffs = coeffs_list[lane_name]
+                points = self.sample_points_from_poly(coeffs, self.x_vals)
                 self.publish_list_of_points(points, publisher, color)
 
         left_coeffs = []
         right_coeffs = []
 
         # Calculate midlines between left-center and center-right
-        if len(coordinates["left"]) > 0 and len(coordinates["center"]) > 0:
-            left_coeffs = (coeffs_list["left"] + coeffs_list["center"]) / 2
-            if self._debug:
-                self.publish_list_of_points(
-                    self.lane_filters["right"].sample_points_from_poly(left_coeffs),
-                    self.left_path_debug_publisher,
-                    color=(255, 255, 255),
-                )
+        left_coeffs = (coeffs_list["left"] + coeffs_list["center"]) / 2
+        if self._debug:
+            self.publish_list_of_points(
+                self.sample_points_from_poly(left_coeffs, self.x_vals),
+                self.left_path_debug_publisher,
+                color=(255, 255, 255),
+            )
 
-            left_path_msg = Float32MultiArray()
-            left_path_msg.data = left_coeffs[::-1].tolist()
-            self.left_path_publisher.publish(left_path_msg)
-        else:
-            self.empty_marker_topic(self.left_path_debug_publisher)
+        left_path_msg = Float32MultiArray()
+        left_path_msg.data = left_coeffs[::-1].tolist()
+        self.left_path_publisher.publish(left_path_msg)
 
-        if len(coordinates["center"]) > 0 and len(coordinates["right"]) > 0:
-            right_coeffs = (coeffs_list["center"] + coeffs_list["right"]) / 2
+        right_coeffs = (coeffs_list["center"] + coeffs_list["right"]) / 2
 
-            self.calculate_ref_point(right_coeffs)
+        self.calculate_ref_point(right_coeffs)
 
-            if self._debug:
-                self.publish_list_of_points(
-                    self.lane_filters["right"].sample_points_from_poly(right_coeffs),
-                    self.right_path_debug_publisher,
-                    color=(255, 255, 255),
-                )
+        if self._debug:
+            self.publish_list_of_points(
+                self.sample_points_from_poly(right_coeffs, self.x_vals),
+                self.right_path_debug_publisher,
+                color=(255, 255, 255),
+            )
 
-            right_path_msg = Float32MultiArray()
-            right_path_msg.data = right_coeffs[::-1].tolist()
-            self.right_path_publisher.publish(right_path_msg)
-        else:
-            self.empty_marker_topic(self.right_path_debug_publisher)
+        right_path_msg = Float32MultiArray()
+        right_path_msg.data = right_coeffs[::-1].tolist()
+        self.right_path_publisher.publish(right_path_msg)
+
+    def sample_points_from_poly(self, coeffs, x_vals):
+        """
+        Creates sample points along a polynomial curve with given coeffs.
+
+        Args:
+            coeffs (array-like): Coefficients of poly.
+
+        Returns:
+            list: List of points representing the fitted lane.
+        """
+        y_vals = np.polyval(
+            coeffs[::-1], x_vals
+        )  # change coeff order from low-high to high-low
+        points = list(map(list, zip(x_vals, y_vals)))
+
+        return points
 
     def ref_point_controller(self, coefficients):
         """

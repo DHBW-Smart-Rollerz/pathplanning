@@ -6,7 +6,7 @@ from sklearn.preprocessing import PolynomialFeatures
 from pathplanning.lane_filter_base import LaneFilterBase
 
 
-class RidgeRansac(LaneFilterBase):
+class Ransac(LaneFilterBase):
     """Ransac filter using RidgeCV as base."""
 
     def fit(self, lane, crossing_state):
@@ -22,7 +22,7 @@ class RidgeRansac(LaneFilterBase):
         super().fit(lane)
 
         if len(lane["points"]) < 10:
-            return [], []
+            return []
 
         x = np.array([point[0] for point in lane["points"]])
         y = np.array([point[1] for point in lane["points"]])
@@ -60,9 +60,7 @@ class RidgeRansac(LaneFilterBase):
         if len(self.buffer) != 0:
             coeffs = self.get_weighted_buffer_average()
 
-        points = self.sample_points_from_poly(coeffs=coeffs)
-
-        return coeffs, points
+        return coeffs
 
 
 from sklearn.metrics import mean_squared_error  # temp

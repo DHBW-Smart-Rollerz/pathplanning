@@ -5,11 +5,14 @@ from numpy.polynomial import polynomial as pol
 class LaneFilterBase:
     """Base for filtering lanes with useful functions to use."""
 
-    min_x = 0.0
-    max_x = 1.5
-
     def __init__(
-        self, lane="unknown", buffer_size=10, diff_threshold=10.0, logger=None
+        self,
+        min_x,
+        max_x,
+        lane="unknown",
+        buffer_size=10,
+        diff_threshold=10.0,
+        logger=None,
     ):
         """
         Init Filter base class.
@@ -23,6 +26,8 @@ class LaneFilterBase:
         self.diff_threshold = diff_threshold
         self.buffer = []
         self._logger = logger
+        self.min_x = min_x
+        self.max_x = max_x
 
     def fit(self, lane):
         """
@@ -35,11 +40,13 @@ class LaneFilterBase:
             list: List of points representing the fitted lane.
         """
         # Remove points from lane where x is within min_x and max_x
+        outer_limit = 0.95
         if "points" in lane:
             filtered_points = [
                 pt
                 for pt in lane["points"]
-                if (self.min_x <= pt[0] <= self.max_x) and (-0.85 < pt[1] < 0.85)
+                if (self.min_x <= pt[0] <= self.max_x)
+                and (-outer_limit < pt[1] < outer_limit)
             ]
             lane["points"] = filtered_points
 
@@ -55,18 +62,21 @@ class LaneFilterBase:
             bool: True if the lane matches the desired direction, False otherwise.
         """
         p = np.polynomial.Polynomial(coeffs)
-        f2 = p.deriv(2)(0.8)
+        y_start = p(self.min_x)  # y at x=0
+        y_end = p(self.max_x)  # y at x=1.5
 
-        tolerance = 0.2
+        # Calculate the average slope
+        slope = (y_end - y_start) / (self.max_x - self.min_x)
 
-        if f2 > tolerance:
-            return "left"
-        elif f2 < -tolerance:
-            return "right"
+        return slope
+
+        if slope > 0.1:
+            return "right"  # Curve goes up (positive y direction)
+        elif slope < -0.1:
+            return "left"  # Curve goes down (negative y direction)
         else:
             return "straight"
 
-        return f2
         # left turn
         if crossing_state == -1:
             pass
@@ -85,24 +95,6 @@ class LaneFilterBase:
         self.buffer.append(result)
         if len(self.buffer) > self.buffer_size:
             self.buffer.pop(0)
-
-    def sample_points_from_poly(self, coeffs, num_samples=50):
-        """
-        Creates sample points along a polynomial curve with given coeffs.
-
-        Args:
-            coeffs (array-like): Coefficients of poly.
-
-        Returns:
-            list: List of points representing the fitted lane.
-        """
-        x_vals = np.linspace(self.min_x, self.max_x, num=num_samples)
-        y_vals = np.polyval(
-            coeffs[::-1], x_vals
-        )  # change coeff order from low-high to high-low
-        points = list(map(list, zip(x_vals, y_vals)))
-
-        return points
 
     def get_weighted_buffer_average(self):
         """

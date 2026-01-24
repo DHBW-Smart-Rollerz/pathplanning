@@ -78,6 +78,11 @@ class LanesToPointCloudNode(Node):
 
         for lane, publisher, color in lanes:
             points = self.lane_to_points(lane)
+            points = [
+                (p[0], p[1], p[2])
+                for p in points
+                if -0.85 < p[1] < 0.85 and -1 <= p[0] <= 1.5
+            ]
             point_count = len(points)
             if point_count == 0:
                 continue
