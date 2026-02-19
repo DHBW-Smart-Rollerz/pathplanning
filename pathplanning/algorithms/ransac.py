@@ -42,10 +42,6 @@ class Ransac(LaneFilterBase):
         intercept_ = reg.estimator_.intercept_
         coeffs = np.concatenate(([intercept_], coef_))  # lowest to highest order
 
-        if crossing_state != 0:
-            curvature = self.check_crossing_direction(coeffs, crossing_state)
-            self._logger.debug(f"{self.lane}: {curvature}")
-
         if self.compare_to_new_coeff(coeffs):
             self.update_buffer(coeffs)
         else:
@@ -59,5 +55,21 @@ class Ransac(LaneFilterBase):
         # increase smoothness by calculating average
         if len(self.buffer) != 0:
             coeffs = self.get_weighted_buffer_average()
+
+        if crossing_state != 0:
+            if not self.check_crossing_direction(coeffs, crossing_state):
+                self._logger.debug(
+                    f"{self.lane}: direction in crossing is wrong way. Using predefined coeffs"
+                )
+
+                lowest_order = 0
+                if self.lane == "left":
+                    lowest_order = 0.7
+                elif self.lane == "right":
+                    lowest_order = -0.7
+                coeffs = np.array([lowest_order, 0.30747138, 0.70643706, 0.74734169])
+                self.buffer = (
+                    []
+                )  # reset buffer to prevent smoothing with wrong coeffs in next frames
 
         return coeffs

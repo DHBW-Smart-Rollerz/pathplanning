@@ -65,25 +65,19 @@ class LaneFilterBase:
         y_start = p(self.min_x)  # y at x=0
         y_end = p(self.max_x)  # y at x=1.5
 
-        # Calculate the average slope
-        slope = (y_end - y_start) / (self.max_x - self.min_x)
+        slope = y_end - y_start  # positive is left, negative is right
 
-        return slope
-
-        if slope > 0.1:
-            return "right"  # Curve goes up (positive y direction)
-        elif slope < -0.1:
-            return "left"  # Curve goes down (negative y direction)
-        else:
-            return "straight"
+        threshold = 0.3
 
         # left turn
-        if crossing_state == -1:
-            pass
+        if crossing_state == -1 and slope > threshold:
+            return True
 
         # right turn
-        elif crossing_state == 1:
-            pass
+        elif crossing_state == 1 and slope < -threshold:
+            return True
+
+        return False
 
     def update_buffer(self, result):
         """
