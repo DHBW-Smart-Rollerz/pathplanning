@@ -2,6 +2,7 @@
 # All rights reserved.
 
 import math
+import time
 
 import numpy as np
 import rclpy
@@ -125,6 +126,8 @@ class PathPlanningNode(SmartyNode):
             ("right", self.right_lane_debug_publisher, (0, 0, 255)),
         ]
 
+        self.timings = []
+
     def receive_lane_detection_result(self, result: LaneDetectionResult):
         """
         Process serialized lane points.
@@ -147,6 +150,8 @@ class PathPlanningNode(SmartyNode):
             crossing_state = (
                 self.get_parameter("crossing_state").get_parameter_value().integer_value
             )
+
+        fit_start = time.time()
 
         for lane_name, publisher, color in self.lanes:
             lane = getattr(result, lane_name)
@@ -200,6 +205,9 @@ class PathPlanningNode(SmartyNode):
             elif "right" not in empty_lanes:
                 coeffs_list["center"] = coeffs_list["right"].copy()
                 coeffs_list["center"][0] += 0.7
+
+        fit_end = time.time()
+        self.timings.append(fit_end - fit_start)
 
         if self._debug:
             for lane_name, publisher, color in self.lanes:
@@ -341,6 +349,13 @@ class PathPlanningNode(SmartyNode):
         marker.action = Marker.DELETE
         publisher.publish(marker)
 
+    def log_average_timing(self):
+        """Logs the average timing of the fitting process."""
+        if self.timings:
+            avg_time = sum(self.timings) / len(self.timings)
+            self._logger.error(f"Average lane fitting time: {avg_time:.4f} seconds")
+            self.timings = []  # Reset timings after logging
+
 
 def main(args=None):
     """
@@ -357,6 +372,7 @@ def main(args=None):
     except KeyboardInterrupt:
         pass
     finally:
+        node.log_average_timing()  # comment out if timing not needed
         node.destroy_node()
         rclpy.shutdown()
 
