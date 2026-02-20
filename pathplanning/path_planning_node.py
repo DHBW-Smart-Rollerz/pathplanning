@@ -59,6 +59,7 @@ class PathPlanningNode(SmartyNode):
         )
 
         self.declare_parameter("crossing_state", 0)
+        self.declare_parameter("crossing_interference_enabled", False)
 
         # Configure logging level based on debug parameter
         if self._debug:
@@ -135,9 +136,17 @@ class PathPlanningNode(SmartyNode):
 
         coeffs_list = {"left": [], "center": [], "right": []}
 
-        crossing_state = (
-            self.get_parameter("crossing_state").get_parameter_value().integer_value
-        )
+        # temp
+        # TODO: load from state estimation node
+        crossing_state = 0
+        if (
+            self.get_parameter("crossing_interference_enabled")
+            .get_parameter_value()
+            .bool_value
+        ):
+            crossing_state = (
+                self.get_parameter("crossing_state").get_parameter_value().integer_value
+            )
 
         for lane_name, publisher, color in self.lanes:
             lane = getattr(result, lane_name)

@@ -18,4 +18,4 @@ path_planning_node:
 
     # additional params
     trj_look_forward: 100      # adapt to speed and runtime
-    state: 1 # values [-1, 0, 1] -1: left, 0: straight, 1: right
+    state: 1
