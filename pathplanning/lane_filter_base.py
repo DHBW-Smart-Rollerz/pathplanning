@@ -28,6 +28,7 @@ class LaneFilterBase:
         self._logger = logger
         self.min_x = min_x
         self.max_x = max_x
+        self.trials = []
 
     def fit(self, lane):
         """

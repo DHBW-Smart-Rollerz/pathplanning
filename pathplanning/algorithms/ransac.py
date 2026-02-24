@@ -38,6 +38,8 @@ class Ransac(LaneFilterBase):
             x_poly, y
         )
 
+        self.trials.append(reg.n_trials_)
+
         coef_ = reg.estimator_.coef_
         intercept_ = reg.estimator_.intercept_
         coeffs = np.concatenate(([intercept_], coef_))  # lowest to highest order

@@ -22,15 +22,6 @@ from pathplanning.algorithms import (
     RidgeCVRegression,
 )
 
-"""
-TODO
-
-- simulate/clone lanes when too few points are detected
-- include state estimation for accepting turns faster
-
-- improve perfomance (min 30 fps / max 33ms)
-"""
-
 
 def serialize_lane(Lane: Lane):
     """
@@ -354,7 +345,14 @@ class PathPlanningNode(SmartyNode):
         if self.timings:
             avg_time = sum(self.timings) / len(self.timings)
             self._logger.error(f"Average lane fitting time: {avg_time:.4f} seconds")
-            self.timings = []  # Reset timings after logging
+            self._logger.error(
+                f"Median lane fitting time: {np.median(self.timings):.4f} seconds"
+            )
+
+            for lane_filter in self.lane_filters.values():
+                self._logger.error(
+                    f"Average trials for {lane_filter.lane}: {np.mean(lane_filter.trials):.2f}"
+                )
 
 
 def main(args=None):
