@@ -57,8 +57,13 @@ class PathPlanningNode(SmartyNode):
         if self._debug:
             self._logger.set_level(rclpy.logging.LoggingSeverity.DEBUG)
 
-        self.min_x = -1.0
-        self.max_x = 1.0
+        # best for "all in one"
+        self.min_x = -0.5
+        self.max_x = 0.4
+
+        # best for seperated fitting
+        # self.min_x = -1.0
+        # self.max_x = 1.0
 
         self.x_vals = np.linspace(self.min_x, self.max_x, num=50)
 
@@ -142,7 +147,7 @@ class PathPlanningNode(SmartyNode):
 
         fit_start = time.time()
 
-        coeffs_list = self.fit_all_lanes(result, crossing_state)
+        coeffs_list = self.fit_lanes_as_one(result, crossing_state)
 
         fit_end = time.time()
         self.timings.append(fit_end - fit_start)
@@ -280,6 +285,13 @@ class PathPlanningNode(SmartyNode):
                 elif lane_name == "right":
                     serialized_lane["points"] = [
                         [point[0], point[1] + 0.7]
+                        for point in serialized_lane["points"]
+                        if -outer_limit < point[1] < outer_limit
+                    ]
+
+                elif lane_name == "center":
+                    serialized_lane["points"] = [
+                        [point[0], point[1]]
                         for point in serialized_lane["points"]
                         if -outer_limit < point[1] < outer_limit
                     ]
