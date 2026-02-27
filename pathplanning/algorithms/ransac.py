@@ -34,9 +34,12 @@ class Ransac(LaneFilterBase):
         x_poly = poly.fit_transform(x.reshape(-1, 1))
 
         base = RidgeCV()
-        reg = RANSACRegressor(base, residual_threshold=0.25, min_samples=5).fit(
-            x_poly, y
-        )
+
+        # residual_threshold = 0.15 # for "all in one" fitting
+        residual_threshold = 0.25  # for seperated fitting
+        reg = RANSACRegressor(
+            base, residual_threshold=residual_threshold, min_samples=5
+        ).fit(x_poly, y)
 
         self.trials.append(reg.n_trials_)
 

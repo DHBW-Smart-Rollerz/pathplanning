@@ -58,14 +58,14 @@ class PathPlanningNode(SmartyNode):
             self._logger.set_level(rclpy.logging.LoggingSeverity.DEBUG)
 
         # best for "all in one"
-        self.min_x = -0.5
-        self.max_x = 0.4
+        # self.min_x = -0.5
+        # self.max_x = 0.5
 
         # best for seperated fitting
-        # self.min_x = -1.0
-        # self.max_x = 1.0
+        self.min_x = -1.0
+        self.max_x = 1.0
 
-        self.x_vals = np.linspace(self.min_x, self.max_x, num=50)
+        self.x_vals = np.linspace(-1.0, 1.0, num=50)
 
         lane_names = ["left", "center", "right"]
         self.lane_filters = {
@@ -147,7 +147,7 @@ class PathPlanningNode(SmartyNode):
 
         fit_start = time.time()
 
-        coeffs_list = self.fit_lanes_as_one(result, crossing_state)
+        coeffs_list = self.fit_all_lanes(result, crossing_state)
 
         fit_end = time.time()
         self.timings.append(fit_end - fit_start)
@@ -217,11 +217,23 @@ class PathPlanningNode(SmartyNode):
         ]
 
         if len(empty_lanes) == 3:
-            self._logger.warning("No lanes found! Driving straight")
+            self._logger.warning("No lanes found! Using last result.")
             empty_lanes.clear()
-            coeffs_list["center"] = np.array([0.0, 0.0, 0.0, 0.0])
-            coeffs_list["left"] = np.array([0.7, 0.0, 0.0, 0.0])
-            coeffs_list["right"] = np.array([-0.7, 0.0, 0.0, 0.0])
+            coeffs_list["center"] = (
+                self.lane_filters["center"].buffer[-1]
+                if len(self.lane_filters["center"].buffer) > 0
+                else np.array([0.0, 0.0, 0.0, 0.0])
+            )
+            coeffs_list["left"] = (
+                self.lane_filters["left"].buffer[-1]
+                if len(self.lane_filters["left"].buffer) > 0
+                else np.array([0.7, 0.0, 0.0, 0.0])
+            )
+            coeffs_list["right"] = (
+                self.lane_filters["right"].buffer[-1]
+                if len(self.lane_filters["right"].buffer) > 0
+                else np.array([-0.7, 0.0, 0.0, 0.0])
+            )
 
         if "left" in empty_lanes:
             self._logger.debug("Left lane missing, simulating...")
@@ -231,6 +243,7 @@ class PathPlanningNode(SmartyNode):
             elif "right" not in empty_lanes:
                 coeffs_list["left"] = coeffs_list["right"].copy()
                 coeffs_list["left"][0] += 1.4
+            self.lane_filters["left"].update_buffer(coeffs_list["left"])
 
         if "right" in empty_lanes:
             self._logger.debug("Right lane missing, simulating...")
@@ -240,6 +253,7 @@ class PathPlanningNode(SmartyNode):
             elif "left" not in empty_lanes:
                 coeffs_list["right"] = coeffs_list["left"].copy()
                 coeffs_list["right"][0] -= 1.4
+            self.lane_filters["right"].update_buffer(coeffs_list["right"])
 
         if "center" in empty_lanes:
             self._logger.debug("Center lane missing, simulating...")
@@ -251,6 +265,7 @@ class PathPlanningNode(SmartyNode):
             elif "right" not in empty_lanes:
                 coeffs_list["center"] = coeffs_list["right"].copy()
                 coeffs_list["center"][0] += 0.7
+            self.lane_filters["center"].update_buffer(coeffs_list["center"])
 
         return coeffs_list
 
@@ -301,8 +316,12 @@ class PathPlanningNode(SmartyNode):
         coeffs = self.lane_filters["left"].fit(coordinates, crossing_state)
 
         if coeffs is None or len(coeffs) == 0:
-            self._logger.warning("No lanes found! Driving straight")
-            coeffs = np.array([0.0, 0.0, 0.0, 0.0])
+            self._logger.warning("No lanes found! Using last result.")
+            coeffs = (
+                self.lane_filters["left"].buffer[-1]
+                if len(self.lane_filters["left"].buffer) > 0
+                else np.array([0.0, 0.0, 0.0, 0.0])
+            )
 
         coeffs_list["center"] = coeffs
 
