@@ -42,14 +42,13 @@ class LaneFilterBase:
         """
         # Remove points from lane where x is within min_x and max_x
         outer_limit = 0.95
-        if "points" in lane:
-            filtered_points = [
-                pt
-                for pt in lane["points"]
-                if (self.min_x <= pt[0] <= self.max_x)
-                and (-outer_limit < pt[1] < outer_limit)
-            ]
-            lane["points"] = filtered_points
+        filtered_points = [
+            pt
+            for pt in lane
+            if (self.min_x <= pt[0] <= self.max_x)
+            and (-outer_limit < pt[1] < outer_limit)
+        ]
+        return filtered_points
 
     def check_crossing_direction(self, coeffs, crossing_state):
         """

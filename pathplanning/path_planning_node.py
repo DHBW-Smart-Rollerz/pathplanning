@@ -128,8 +128,6 @@ class PathPlanningNode(SmartyNode):
         """
         self._logger.debug("Received!")
 
-        coeffs_list = {"left": [], "center": [], "right": []}
-
         # temp
         # TODO: load from state estimation node
         crossing_state = 0
@@ -144,17 +142,69 @@ class PathPlanningNode(SmartyNode):
 
         fit_start = time.time()
 
-        for lane_name, publisher, color in self.lanes:
-            lane = getattr(result, lane_name)
-            serialized_lane = serialize_lane(lane)
+        coeffs_list = self.fit_all_lanes(result, crossing_state)
 
-            serialized_lane["points"] = [
-                p for p in serialized_lane["points"] if p[0] <= 3
-            ]
+        fit_end = time.time()
+        self.timings.append(fit_end - fit_start)
+
+        if self._debug:
+            for lane_name, publisher, color in self.lanes:
+                coeffs = coeffs_list[lane_name]
+                points = self.sample_points_from_poly(coeffs, self.x_vals)
+                self.publish_list_of_points(points, publisher, color)
+
+        left_coeffs = []
+        right_coeffs = []
+
+        # Calculate midlines between left-center and center-right
+        left_coeffs = (coeffs_list["left"] + coeffs_list["center"]) / 2
+        if self._debug:
+            self.publish_list_of_points(
+                self.sample_points_from_poly(left_coeffs, self.x_vals),
+                self.left_path_debug_publisher,
+                color=(255, 255, 255),
+            )
+
+        left_path_msg = Float32MultiArray()
+        left_path_msg.data = left_coeffs[::-1].tolist()
+        self.left_path_publisher.publish(left_path_msg)
+
+        right_coeffs = (coeffs_list["center"] + coeffs_list["right"]) / 2
+
+        self.calculate_ref_point(right_coeffs)
+
+        if self._debug:
+            self.publish_list_of_points(
+                self.sample_points_from_poly(right_coeffs, self.x_vals),
+                self.right_path_debug_publisher,
+                color=(255, 255, 255),
+            )
+
+        right_path_msg = Float32MultiArray()
+        right_path_msg.data = right_coeffs[::-1].tolist()
+        self.right_path_publisher.publish(right_path_msg)
+
+    def fit_all_lanes(self, lane_result, crossing_state):
+        """
+        Following the "All in one" principle, where all lanes are combined to one and then fitted as a single polynomial.
+        After that, they are seperated again.
+
+        Args:
+            lane_result (LaneDetectionResult): Result of lane detection topic.
+            crossing_state (int): Passed to the lane fitting process to adjust it in case of crossing situations.
+
+        Returns:
+            coeffs: Dictionary containing the coefficients for left, center and right lane. Each entry is a list of polynomial coefficients.
+        """
+        coeffs_list = {"left": [], "center": [], "right": []}
+
+        for lane_name, publisher, color in self.lanes:
+            lane = getattr(lane_result, lane_name)
+            serialized_lane = serialize_lane(lane)
 
             if lane.detected:
                 coeffs_list[lane_name] = self.lane_filters[lane_name].fit(
-                    serialized_lane, crossing_state
+                    serialized_lane["points"], crossing_state
                 )
 
         empty_lanes = [
@@ -197,45 +247,60 @@ class PathPlanningNode(SmartyNode):
                 coeffs_list["center"] = coeffs_list["right"].copy()
                 coeffs_list["center"][0] += 0.7
 
-        fit_end = time.time()
-        self.timings.append(fit_end - fit_start)
+        return coeffs_list
 
-        if self._debug:
-            for lane_name, publisher, color in self.lanes:
-                coeffs = coeffs_list[lane_name]
-                points = self.sample_points_from_poly(coeffs, self.x_vals)
-                self.publish_list_of_points(points, publisher, color)
+    def fit_lanes_as_one(self, lane_result, crossing_state):
+        """
+        Following the "All in one" principle, where all lanes are combined to one and then fitted as a single polynomial.
+        After that, they are seperated again.
 
-        left_coeffs = []
-        right_coeffs = []
+        Args:
+            lane_result (LaneDetectionResult): Result of lane detection topic.
+            crossing_state (int): Passed to the lane fitting process to adjust it in case of crossing situations.
 
-        # Calculate midlines between left-center and center-right
-        left_coeffs = (coeffs_list["left"] + coeffs_list["center"]) / 2
-        if self._debug:
-            self.publish_list_of_points(
-                self.sample_points_from_poly(left_coeffs, self.x_vals),
-                self.left_path_debug_publisher,
-                color=(255, 255, 255),
-            )
+        Returns:
+            coeffs: Dictionary containing the coefficients for left, center and right lane. Each entry is a list of polynomial coefficients.
+        """
+        coeffs_list = {"left": [], "center": [], "right": []}
 
-        left_path_msg = Float32MultiArray()
-        left_path_msg.data = left_coeffs[::-1].tolist()
-        self.left_path_publisher.publish(left_path_msg)
+        coordinates = []
+        outer_limit = 0.95
 
-        right_coeffs = (coeffs_list["center"] + coeffs_list["right"]) / 2
+        for lane_name, publisher, color in self.lanes:
+            lane = getattr(lane_result, lane_name)
+            serialized_lane = serialize_lane(lane)
 
-        self.calculate_ref_point(right_coeffs)
+            if lane.detected:
+                if lane_name == "left":
+                    serialized_lane["points"] = [
+                        [point[0], point[1] - 0.7]
+                        for point in serialized_lane["points"]
+                        if -outer_limit < point[1] < outer_limit
+                    ]
+                elif lane_name == "right":
+                    serialized_lane["points"] = [
+                        [point[0], point[1] + 0.7]
+                        for point in serialized_lane["points"]
+                        if -outer_limit < point[1] < outer_limit
+                    ]
 
-        if self._debug:
-            self.publish_list_of_points(
-                self.sample_points_from_poly(right_coeffs, self.x_vals),
-                self.right_path_debug_publisher,
-                color=(255, 255, 255),
-            )
+                coordinates.extend(serialized_lane["points"])
 
-        right_path_msg = Float32MultiArray()
-        right_path_msg.data = right_coeffs[::-1].tolist()
-        self.right_path_publisher.publish(right_path_msg)
+        coeffs = self.lane_filters["left"].fit(coordinates, crossing_state)
+
+        if coeffs is None or len(coeffs) == 0:
+            self._logger.warning("No lanes found! Driving straight")
+            coeffs = np.array([0.0, 0.0, 0.0, 0.0])
+
+        coeffs_list["center"] = coeffs
+
+        coeffs_list["left"] = coeffs.copy()
+        coeffs_list["left"][0] += 0.7
+
+        coeffs_list["right"] = coeffs.copy()
+        coeffs_list["right"][0] -= 0.7
+
+        return coeffs_list
 
     def sample_points_from_poly(self, coeffs, x_vals):
         """

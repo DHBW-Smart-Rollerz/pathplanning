@@ -19,13 +19,13 @@ class Ransac(LaneFilterBase):
         Returns:
             list: List of points representing the fitted lane.
         """
-        super().fit(lane)
+        lane = super().fit(lane)
 
-        if len(lane["points"]) < 10:
+        if len(lane) < 10:
             return []
 
-        x = np.array([point[0] for point in lane["points"]])
-        y = np.array([point[1] for point in lane["points"]])
+        x = np.array([point[0] for point in lane])
+        y = np.array([point[1] for point in lane])
 
         degree = 3
 
