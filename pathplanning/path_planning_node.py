@@ -58,11 +58,11 @@ class PathPlanningNode(SmartyNode):
             self._logger.set_level(rclpy.logging.LoggingSeverity.DEBUG)
 
         # best for "all in one"
-        # self.min_x = -0.5
+        # self.min_x = -0.25
         # self.max_x = 0.5
 
         # best for seperated fitting
-        self.min_x = -0.5
+        self.min_x = -0.25
         self.max_x = 1.0
 
         self.x_vals = np.linspace(-1.0, 1.0, num=50)
