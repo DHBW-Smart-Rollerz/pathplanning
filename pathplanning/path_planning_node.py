@@ -112,9 +112,9 @@ class PathPlanningNode(SmartyNode):
             Float32MultiArray, "/path_planning/target/right", 10
         )
 
-        self.ref_point_publisher = self.create_publisher(
-            Vector3, "/path_planning/target/pose", 10
-        )
+        # self.ref_point_publisher = self.create_publisher(
+        #     Vector3, "/path_planning/target/pose", 10
+        # )
 
         self.lanes = [
             ("left", self.left_lane_debug_publisher, (255, 0, 0)),
@@ -386,9 +386,9 @@ class PathPlanningNode(SmartyNode):
             if theta <= 0.3:
                 theta = theta / 4
 
-            self.ref_point_publisher.publish(
-                Vector3(y=ref_y / 1000, x=ref_x / 1000, z=theta)
-            )
+            # self.ref_point_publisher.publish(
+            #     Vector3(y=ref_y / 1000, x=ref_x / 1000, z=theta)
+            # )
 
     def publish_list_of_points(self, points, publisher, color=(1.0, 1.0, 1.0)):
         """
