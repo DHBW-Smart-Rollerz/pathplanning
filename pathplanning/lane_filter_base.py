@@ -79,6 +79,29 @@ class LaneFilterBase:
 
         return False
 
+    def make_crossing_coeffs(self, crossing_state):
+        """
+        Create predefined coefficients for crossing state.
+
+        Args:
+            crossing_state (int): Desired crossing state (-1: left, 0: straight, 1: right).
+
+        Returns:
+            3 Arrays: Coefficients for left, straight and right crossing.
+        """
+        left_lane = np.array([4.78916201, 6.64607726, 3.43494174, 0.59787335])
+        center_lane = np.array([1.11495882, 2.71603265, 2.1794077, 0.59787335])
+        right_lane = np.array([-0.5610129, 1.2594857, 1.46195968, 0.59787335])
+
+        if crossing_state == -1:
+            return left_lane, center_lane, right_lane
+        else:  # crossing_state == 1, TODO: add straight crossing state
+            return (
+                right_lane * (-1),
+                center_lane * (-1),
+                left_lane * (-1),
+            )  # right curve mirrored left curve
+
     def update_buffer(self, result):
         """
         Update the buffer with new points.

@@ -145,6 +145,8 @@ class PathPlanningNode(SmartyNode):
                 self.get_parameter("crossing_state").get_parameter_value().integer_value
             )
 
+            self._logger.debug(f"Crossing state: {crossing_state}")
+
         fit_start = time.time()
 
         coeffs_list = self.fit_all_lanes(result, crossing_state)
@@ -208,9 +210,21 @@ class PathPlanningNode(SmartyNode):
             serialized_lane = serialize_lane(lane)
 
             if lane.detected:
-                coeffs_list[lane_name] = self.lane_filters[lane_name].fit(
-                    serialized_lane["points"], crossing_state
-                )
+                coeffs_list[lane_name], correct_cross = self.lane_filters[
+                    lane_name
+                ].fit(serialized_lane["points"], crossing_state)
+                self._logger.debug(f"Crossing state: {crossing_state}")
+                if (
+                    not correct_cross
+                ):  # if one lane is false, predefined coeffs are used for all lanes
+                    (
+                        coeffs_list["left"],
+                        coeffs_list["center"],
+                        coeffs_list["right"],
+                    ) = self.lane_filters[lane_name].make_crossing_coeffs(
+                        crossing_state
+                    )
+                    return coeffs_list
 
         empty_lanes = [
             lane_name for lane_name, coeffs in coeffs_list.items() if len(coeffs) == 0
@@ -313,7 +327,9 @@ class PathPlanningNode(SmartyNode):
 
                 coordinates.extend(serialized_lane["points"])
 
-        coeffs = self.lane_filters["left"].fit(coordinates, crossing_state)
+        coeffs, correct_cross = self.lane_filters["left"].fit(
+            coordinates, crossing_state
+        )
 
         if coeffs is None or len(coeffs) == 0:
             self._logger.warning("No lanes found! Using last result.")
