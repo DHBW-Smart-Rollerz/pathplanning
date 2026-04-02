@@ -80,6 +80,22 @@ class PathPlanningNode(SmartyNode):
             for name in lane_names
         }
 
+        # predefined coeffs for crossing interference (with the direction facing left)
+        left_crossing_coeffs = np.array(
+            [4.78916201, 6.64607726, 3.43494174, 0.59787335]
+        )
+        center_crossing_coeffs = np.array(
+            [1.11495882, 2.71603265, 2.1794077, 0.59787335]
+        )
+        right_crossing_coeffs = np.array(
+            [-0.5610129, 1.2594857, 1.46195968, 0.59787335]
+        )
+        self.crossing_coeffs_map = {
+            "left": left_crossing_coeffs,
+            "center": center_crossing_coeffs,
+            "right": right_crossing_coeffs,
+        }
+
         self.lane_detection_subscription = self.create_subscription(
             LaneDetectionResult,
             "/lane_detection/lane",
@@ -145,8 +161,6 @@ class PathPlanningNode(SmartyNode):
                 self.get_parameter("crossing_state").get_parameter_value().integer_value
             )
 
-            self._logger.debug(f"Crossing state: {crossing_state}")
-
         fit_start = time.time()
 
         coeffs_list = self.fit_all_lanes(result, crossing_state)
@@ -210,44 +224,46 @@ class PathPlanningNode(SmartyNode):
             serialized_lane = serialize_lane(lane)
 
             if lane.detected:
-                coeffs_list[lane_name], correct_cross = self.lane_filters[
-                    lane_name
-                ].fit(serialized_lane["points"], crossing_state)
-                self._logger.debug(f"Crossing state: {crossing_state}")
-                if (
-                    not correct_cross
-                ):  # if one lane is false, predefined coeffs are used for all lanes
-                    (
-                        coeffs_list["left"],
-                        coeffs_list["center"],
-                        coeffs_list["right"],
-                    ) = self.lane_filters[lane_name].make_crossing_coeffs(
-                        crossing_state
-                    )
-                    return coeffs_list
+                coeffs_list[lane_name] = self.lane_filters[lane_name].fit(
+                    serialized_lane["points"], crossing_state
+                )
 
         empty_lanes = [
             lane_name for lane_name, coeffs in coeffs_list.items() if len(coeffs) == 0
         ]
 
         if len(empty_lanes) == 3:
-            self._logger.warning("No lanes found! Using last result.")
             empty_lanes.clear()
-            coeffs_list["center"] = (
-                self.lane_filters["center"].buffer[-1]
-                if len(self.lane_filters["center"].buffer) > 0
-                else np.array([0.0, 0.0, 0.0, 0.0])
-            )
-            coeffs_list["left"] = (
-                self.lane_filters["left"].buffer[-1]
-                if len(self.lane_filters["left"].buffer) > 0
-                else np.array([0.7, 0.0, 0.0, 0.0])
-            )
-            coeffs_list["right"] = (
-                self.lane_filters["right"].buffer[-1]
-                if len(self.lane_filters["right"].buffer) > 0
-                else np.array([-0.7, 0.0, 0.0, 0.0])
-            )
+
+            if crossing_state == 0:
+                self._logger.warning("No lanes found! Using last result.")
+                coeffs_list["center"] = (
+                    self.lane_filters["center"].buffer[-1]
+                    if len(self.lane_filters["center"].buffer) > 0
+                    else np.array([0.0, 0.0, 0.0, 0.0])
+                )
+                coeffs_list["left"] = (
+                    self.lane_filters["left"].buffer[-1]
+                    if len(self.lane_filters["left"].buffer) > 0
+                    else np.array([0.7, 0.0, 0.0, 0.0])
+                )
+                coeffs_list["right"] = (
+                    self.lane_filters["right"].buffer[-1]
+                    if len(self.lane_filters["right"].buffer) > 0
+                    else np.array([-0.7, 0.0, 0.0, 0.0])
+                )
+            else:
+                self._logger.warning(
+                    "No lane pointing to correct crossing direction! Using predefined"
+                )
+                coeffs_list = {
+                    lane_name: (
+                        self.crossing_coeffs_map[lane_name]
+                        if crossing_state == -1
+                        else self.crossing_coeffs_map[lane_name] * -1
+                    )
+                    for lane_name in ["left", "center", "right"]
+                }
 
         if "left" in empty_lanes:
             self._logger.debug("Left lane missing, simulating...")
@@ -327,9 +343,7 @@ class PathPlanningNode(SmartyNode):
 
                 coordinates.extend(serialized_lane["points"])
 
-        coeffs, correct_cross = self.lane_filters["left"].fit(
-            coordinates, crossing_state
-        )
+        coeffs = self.lane_filters["left"].fit(coordinates, crossing_state)
 
         if coeffs is None or len(coeffs) == 0:
             self._logger.warning("No lanes found! Using last result.")

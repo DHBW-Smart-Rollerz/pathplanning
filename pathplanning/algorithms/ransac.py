@@ -22,7 +22,7 @@ class Ransac(LaneFilterBase):
         lane = super().fit(lane)
 
         if len(lane) < 10:
-            return [], True
+            return []
 
         x = np.array([point[0] for point in lane])
         y = np.array([point[1] for point in lane])
@@ -61,16 +61,11 @@ class Ransac(LaneFilterBase):
         if len(self.buffer) != 0:
             coeffs = self.get_weighted_buffer_average()
 
-        correct_cross = True
         if crossing_state != 0:
             if not self.check_crossing_direction(coeffs, crossing_state):
                 self._logger.debug(
-                    f"{self.lane}: direction in crossing is wrong way. Using predefined coeffs"
+                    f"{self.lane}: not pointing to correct crossing direction. clearing..."
                 )
-                correct_cross = False
+                return []
 
-                self.buffer = (
-                    []
-                )  # reset buffer to prevent smoothing with wrong coeffs in next frames
-
-        return coeffs, correct_cross
+        return coeffs
