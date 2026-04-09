@@ -81,13 +81,13 @@ class PathPlanningNode(SmartyNode):
 
         # predefined coeffs for crossing interference (with the direction facing left)
         left_crossing_coeffs = np.array(
-            [4.78916201, 6.64607726, 3.43494174, 0.59787335]
+            [1.33015314, 1.56981384, 1.64132168, 0.59787335]
         )
         center_crossing_coeffs = np.array(
-            [1.11495882, 2.71603265, 2.1794077, 0.59787335]
+            [0.33046052, 0.15083731, 0.38578764, 0.59787335]
         )
         right_crossing_coeffs = np.array(
-            [-0.5610129, 1.2594857, 1.46195968, 0.59787335]
+            [-0.60641228, 0.12918641, -0.33166038, 0.59787335]
         )
         self.crossing_coeffs_map = {
             "left": left_crossing_coeffs,
