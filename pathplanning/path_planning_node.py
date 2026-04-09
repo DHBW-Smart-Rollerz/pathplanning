@@ -10,7 +10,7 @@ import visualization_msgs
 from geometry_msgs.msg import Point, Vector3
 from lane_msgs.msg import Lane, LaneDetectionResult
 from smarty_utils.smarty_node import SmartyNode
-from std_msgs.msg import Float32MultiArray
+from std_msgs.msg import Float32MultiArray, String
 from visualization_msgs.msg import Marker
 
 from pathplanning.algorithms import (
@@ -50,8 +50,7 @@ class PathPlanningNode(SmartyNode):
             "pathplanning",
         )
 
-        self.declare_parameter("crossing_state", 0)
-        self.declare_parameter("crossing_interference_enabled", False)
+        self.declare_parameter("crossing_interference", False)
 
         # Configure logging level based on debug parameter
         if self._debug:
@@ -103,6 +102,15 @@ class PathPlanningNode(SmartyNode):
             10,
         )
 
+        self.crossing_state = 0
+        if self.get_parameter("crossing_interference").get_parameter_value().bool_value:
+            self.crossing_state_subscription = self.create_subscription(
+                String,
+                "/state_machine/path_planning/direction",
+                self.receive_crossing_state,
+                10,
+            )
+
         # publisher for debug purposes in RViz
         self.left_lane_debug_publisher = self.create_publisher(
             visualization_msgs.msg.Marker, "/path_planning/debug/left", 10
@@ -140,6 +148,21 @@ class PathPlanningNode(SmartyNode):
 
         self.timings = []
 
+    def receive_crossing_state(self, msg):
+        """
+        Receives the crossing state from the state machine.
+
+        Args:
+            msg (std_msgs.msg.String): Message containing the crossing state ("left", "right", "none").
+        """
+        state_str = msg.data.lower()
+        if state_str == "left":
+            self.crossing_state = -1
+        elif state_str == "right":
+            self.crossing_state = 1
+        else:
+            self.crossing_state = 0
+
     def receive_lane_detection_result(self, result: LaneDetectionResult):
         """
         Process serialized lane points.
@@ -149,17 +172,7 @@ class PathPlanningNode(SmartyNode):
         """
         self._logger.debug("Received!")
 
-        # temp
-        # TODO: load from state estimation node
-        crossing_state = 0
-        if (
-            self.get_parameter("crossing_interference_enabled")
-            .get_parameter_value()
-            .bool_value
-        ):
-            crossing_state = (
-                self.get_parameter("crossing_state").get_parameter_value().integer_value
-            )
+        crossing_state = self.crossing_state
 
         fit_start = time.time()
 
@@ -260,7 +273,13 @@ class PathPlanningNode(SmartyNode):
                     lane_name: (
                         self.crossing_coeffs_map[lane_name]
                         if crossing_state == -1
-                        else self.crossing_coeffs_map[lane_name] * -1
+                        else -self.crossing_coeffs_map[
+                            "right"
+                            if lane_name == "left"
+                            else "left"
+                            if lane_name == "right"
+                            else lane_name
+                        ]
                     )
                     for lane_name in ["left", "center", "right"]
                 }

@@ -17,8 +17,8 @@ def generate_launch_description():
     debug_arg = DeclareLaunchArgument(
         "debug", default_value="false", description="Enable debug mode"
     )
-    crossing_interference_enabled_arg = DeclareLaunchArgument(
-        "crossing_interference_enabled",
+    crossing_interference_arg = DeclareLaunchArgument(
+        "crossing_interference",
         default_value="false",
         description="Enable crossing interference",
     )
@@ -44,9 +44,7 @@ def generate_launch_description():
             config_file,
             {
                 "debug": LaunchConfiguration("debug"),
-                "crossing_interference_enabled": LaunchConfiguration(
-                    "crossing_interference_enabled"
-                ),
+                "crossing_interference": LaunchConfiguration("crossing_interference"),
             },
         ],
     )
@@ -56,7 +54,7 @@ def generate_launch_description():
         [
             params_file_arg,
             debug_arg,
-            crossing_interference_enabled_arg,
+            crossing_interference_arg,
             pathplanning_node,
         ]
     )
