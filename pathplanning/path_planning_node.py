@@ -162,7 +162,7 @@ class PathPlanningNode(SmartyNode):
             if self.crossing_state != 0:
                 self._logger.debug("Starting crossing state timer...")
                 self.crossing_state_timer = self.create_timer(
-                    1.0, self.reset_crossing_state
+                    3.0, self.reset_crossing_state
                 )
 
             self.crossing_state = 0
@@ -181,6 +181,7 @@ class PathPlanningNode(SmartyNode):
         """Resets the crossing state to 0 after a timer expires."""
         self._logger.debug("Resetting crossing state to 0.")
         self.crossing_state_timer.cancel()
+        self.crossing_state_timer = None
         self.crossing_state = 0
 
     def receive_lane_detection_result(self, result: LaneDetectionResult):
@@ -295,7 +296,12 @@ class PathPlanningNode(SmartyNode):
                     for lane_name in ["left", "center", "right"]:
                         coeffs = -self.crossing_coeffs_map[lane_name]
                         coeffs[0] += 0.7
-                        coeffs_list[lane_name] = coeffs
+                        if lane_name == "right":
+                            coeffs_list["left"] = coeffs
+                        elif lane_name == "left":
+                            coeffs_list["right"] = coeffs
+                        else:
+                            coeffs_list["center"] = coeffs
 
         if "left" in empty_lanes:
             self._logger.debug("Left lane missing, simulating...")
