@@ -269,20 +269,13 @@ class PathPlanningNode(SmartyNode):
                 self._logger.warning(
                     "No lane pointing to correct crossing direction! Using predefined"
                 )
-                coeffs_list = {
-                    lane_name: (
-                        self.crossing_coeffs_map[lane_name]
-                        if crossing_state == -1
-                        else -self.crossing_coeffs_map[
-                            "right"
-                            if lane_name == "left"
-                            else "left"
-                            if lane_name == "right"
-                            else lane_name
-                        ]
-                    )
-                    for lane_name in ["left", "center", "right"]
-                }
+                if crossing_state == -1:
+                    coeffs_list = self.crossing_coeffs_map
+                else:
+                    for lane_name in ["left", "center", "right"]:
+                        coeffs = -self.crossing_coeffs_map[lane_name]
+                        coeffs[0] += 0.7
+                        coeffs_list[lane_name] = coeffs
 
         if "left" in empty_lanes:
             self._logger.debug("Left lane missing, simulating...")
