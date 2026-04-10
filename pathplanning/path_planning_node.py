@@ -110,6 +110,7 @@ class PathPlanningNode(SmartyNode):
                 self.receive_crossing_state,
                 10,
             )
+        self.crossing_state_timer = None  # stored to interrupt timer when needed
 
         # publisher for debug purposes in RViz
         self.left_lane_debug_publisher = self.create_publisher(
@@ -156,12 +157,30 @@ class PathPlanningNode(SmartyNode):
             msg (std_msgs.msg.String): Message containing the crossing state ("left", "right", "none").
         """
         state_str = msg.data.lower()
-        if state_str == "left":
-            self.crossing_state = -1
-        elif state_str == "right":
-            self.crossing_state = 1
-        else:
+        if state_str == "straight":
+            # start timer, if state was not straight in the last frame to keep this state for a short time
+            if self.crossing_state != 0:
+                self._logger.debug("Starting crossing state timer...")
+                self.crossing_state_timer = self.create_timer(
+                    1.0, self.reset_crossing_state
+                )
+
             self.crossing_state = 0
+        else:
+            # interrupt timer if state changes to crossing again
+            if self.crossing_state_timer is not None:
+                self.crossing_state_timer.cancel()
+                self.crossing_state_timer = None
+
+            if state_str == "left":
+                self.crossing_state = -1
+            elif state_str == "right":
+                self.crossing_state = 1
+
+    def reset_crossing_state(self):
+        """Resets the crossing state to 0 after a timer expires."""
+        self._logger.debug("Resetting crossing state to 0.")
+        self.crossing_state = 0
 
     def receive_lane_detection_result(self, result: LaneDetectionResult):
         """
