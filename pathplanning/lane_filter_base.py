@@ -41,7 +41,7 @@ class LaneFilterBase:
             list: List of points representing the fitted lane.
         """
         # Remove points from lane where x is within min_x and max_x
-        outer_limit = 0.95
+        outer_limit = 0.85
         filtered_points = [
             pt
             for pt in lane

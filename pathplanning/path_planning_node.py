@@ -81,13 +81,13 @@ class PathPlanningNode(SmartyNode):
 
         # predefined coeffs for crossing interference (with the direction facing left)
         left_crossing_coeffs = np.array(
-            [1.33015314, 1.56981384, 1.64132168, 0.59787335]
+            [2.25012465, 3.65954053, 2.53813171, 0.59787335]
         )
         center_crossing_coeffs = np.array(
-            [0.33046052, 0.15083731, 0.38578764, 0.59787335]
+            [0.52706025, 0.98502997, 1.28259767, 0.59787335]
         )
         right_crossing_coeffs = np.array(
-            [-0.60641228, 0.12918641, -0.33166038, 0.59787335]
+            [-0.30641228, 0.12918641, -0.33166038, 0.59787335]
         )
         self.crossing_coeffs_map = {
             "left": left_crossing_coeffs,
@@ -159,13 +159,14 @@ class PathPlanningNode(SmartyNode):
         state_str = msg.data.lower()
         if state_str == "straight":
             # start timer, if state was not straight in the last frame to keep this state for a short time
-            if self.crossing_state != 0:
+            if self.crossing_state != 0 and self.crossing_state_timer is None:
                 self._logger.debug("Starting crossing state timer...")
                 self.crossing_state_timer = self.create_timer(
-                    3.0, self.reset_crossing_state
+                    4.0, self.reset_crossing_state
                 )
-
-            self.crossing_state = 0
+            elif self.crossing_state_timer is None:
+                # Only set to 0 immediately if there is no active timer
+                self.crossing_state = 0
         else:
             # interrupt timer if state changes to crossing again
             if self.crossing_state_timer is not None:
@@ -173,7 +174,7 @@ class PathPlanningNode(SmartyNode):
                 self.crossing_state_timer = None
 
             if state_str == "left":
-                self.crossing_state = -1
+                self.crossing_state = 1
             elif state_str == "right":
                 self.crossing_state = 1
 

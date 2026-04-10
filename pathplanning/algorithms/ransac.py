@@ -66,6 +66,7 @@ class Ransac(LaneFilterBase):
                 self._logger.debug(
                     f"{self.lane}: not pointing to correct crossing direction. clearing..."
                 )
+                self.buffer.clear()
                 return []
 
         return coeffs
