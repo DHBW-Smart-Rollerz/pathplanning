@@ -180,6 +180,7 @@ class PathPlanningNode(SmartyNode):
     def reset_crossing_state(self):
         """Resets the crossing state to 0 after a timer expires."""
         self._logger.debug("Resetting crossing state to 0.")
+        self.crossing_state_timer.cancel()
         self.crossing_state = 0
 
     def receive_lane_detection_result(self, result: LaneDetectionResult):
