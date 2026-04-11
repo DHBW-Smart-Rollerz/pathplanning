@@ -137,10 +137,6 @@ class PathPlanningNode(SmartyNode):
             Float32MultiArray, "/path_planning/target/right", 10
         )
 
-        # self.ref_point_publisher = self.create_publisher(
-        #     Vector3, "/path_planning/target/pose", 10
-        # )
-
         self.lanes = [
             ("left", self.left_lane_debug_publisher, (255, 0, 0)),
             ("center", self.center_lane_debug_publisher, (0, 255, 0)),
@@ -227,8 +223,6 @@ class PathPlanningNode(SmartyNode):
 
         right_coeffs = (coeffs_list["center"] + coeffs_list["right"]) / 2
 
-        self.calculate_ref_point(right_coeffs)
-
         if self._debug:
             self.publish_list_of_points(
                 self.sample_points_from_poly(right_coeffs, self.x_vals),
@@ -294,15 +288,13 @@ class PathPlanningNode(SmartyNode):
                 if crossing_state == -1:
                     coeffs_list = self.crossing_coeffs_map
                 else:
+                    # swap left and right and invert all coeffs, so lanes face right
+                    coeffs_list["left"] = -self.crossing_coeffs_map["right"]
+                    coeffs_list["center"] = -self.crossing_coeffs_map["center"]
+                    coeffs_list["right"] = -self.crossing_coeffs_map["left"]
+
                     for lane_name in ["left", "center", "right"]:
-                        coeffs = -self.crossing_coeffs_map[lane_name]
-                        coeffs[0] += 0.7
-                        if lane_name == "right":
-                            coeffs_list["left"] = coeffs
-                        elif lane_name == "left":
-                            coeffs_list["right"] = coeffs
-                        else:
-                            coeffs_list["center"] = coeffs
+                        coeffs_list[lane_name][0] += 0.7
 
         if "left" in empty_lanes:
             self._logger.debug("Left lane missing, simulating...")
@@ -418,46 +410,6 @@ class PathPlanningNode(SmartyNode):
         points = list(map(list, zip(x_vals, y_vals)))
 
         return points
-
-    def ref_point_controller(self, coefficients):
-        """
-        Determines reference points for the controller based on the provided polynomial coefficients.
-
-        Args:
-            coefficients (list): List of coefficients representing the polynomial.
-
-        Returns:
-            tuple: Tuple containing (x, y, theta) representing the reference point coordinates and angle.
-        """
-        # self.get_logger().info(
-        #     f"Coefficients: {coefficients}, Reversed: {coefficients[::-1]}"
-        # )
-        p = np.poly1d(coefficients[::-1])
-        x = 0.1
-        y = p(x)
-        y__temp = y
-        theta = +1 * math.atan(
-            3 * coefficients[3] * ((y__temp) ** 2)
-            + 2 * coefficients[2] * (y__temp)
-            + coefficients[1]
-        )  # Tom fragen
-        # self.get_logger().info(f"Ref Point: x: {x}, y: {y}, theta: {theta}")
-        return x * 1000, y * 1000, theta
-
-    def calculate_ref_point(self, coeffs):
-        """Calculate the reference point for the vehicle's trajectory based on its current state."""
-        lane_coefficients = coeffs
-
-        if any(lane_coefficients):
-            ref_x, ref_y, theta = self.ref_point_controller(lane_coefficients)
-            self.drive_point_ruling = (int(ref_x), int(ref_y))
-
-            if theta <= 0.3:
-                theta = theta / 4
-
-            # self.ref_point_publisher.publish(
-            #     Vector3(y=ref_y / 1000, x=ref_x / 1000, z=theta)
-            # )
 
     def publish_list_of_points(self, points, publisher, color=(1.0, 1.0, 1.0)):
         """
