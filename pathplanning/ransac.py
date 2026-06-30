@@ -35,8 +35,9 @@ class Ransac(LaneFilterBase):
 
         base = RidgeCV()
 
-        # residual_threshold = 0.15 # for "all in one" fitting
-        residual_threshold = 0.25  # for seperated fitting
+        residual_threshold = (
+            0.25  # distance threshold for points to be considered inliers
+        )
         reg = RANSACRegressor(
             base, residual_threshold=residual_threshold, min_samples=5
         ).fit(x_poly, y)
@@ -56,11 +57,12 @@ class Ransac(LaneFilterBase):
             self.buffer.pop(0)  # "reset" when last 5 frames where denied
             if len(self.buffer) == 0:
                 self._logger.debug(f"{self.lane}: buffer empty, reset")
-                # self.update_buffer(coeffs)
-        # increase smoothness by calculating average
+
+        # increase smoothness by calculating weighted average
         if len(self.buffer) != 0:
             coeffs = self.get_weighted_buffer_average()
 
+        # crossing was not used in caudri challenge. look in readme
         if crossing_state != 0:
             if not self.check_crossing_direction(coeffs, crossing_state):
                 self._logger.debug(

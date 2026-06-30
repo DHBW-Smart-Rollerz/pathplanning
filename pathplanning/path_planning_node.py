@@ -1,26 +1,21 @@
 # Copyright (c) 2025 Smart Rollerz e.V.
 # All rights reserved.
 
-import math
+import json
+import os
 import time
+from datetime import datetime
 
 import numpy as np
 import rclpy
 import visualization_msgs
-from geometry_msgs.msg import Point, Vector3
+from geometry_msgs.msg import Point
 from lane_msgs.msg import Lane, LaneDetectionResult
 from smarty_utils.smarty_node import SmartyNode
 from std_msgs.msg import Float32MultiArray, String
 from visualization_msgs.msg import Marker
 
-from pathplanning.algorithms import (
-    BSpline,
-    HuberRegression,
-    KalmanFilter,
-    ParticleFilter,
-    Ransac,
-    RidgeCVRegression,
-)
+from pathplanning.ransac import Ransac
 
 
 def serialize_lane(Lane: Lane):
@@ -56,15 +51,13 @@ class PathPlanningNode(SmartyNode):
         if self._debug:
             self._logger.set_level(rclpy.logging.LoggingSeverity.DEBUG)
 
-        # best for "all in one"
-        # self.min_x = -0.25
-        # self.max_x = 0.5
-
         # best for seperated fitting
         self.min_x = -0.25
         self.max_x = 1.0
 
-        self.x_vals = np.linspace(-1.0, 1.0, num=50)
+        self.x_vals = np.linspace(
+            -1.0, 1.0, num=50
+        )  # only used on debug mode to draw trajectory in rviz
 
         lane_names = ["left", "center", "right"]
         self.lane_filters = {
@@ -73,12 +66,13 @@ class PathPlanningNode(SmartyNode):
                 self.max_x,
                 name,
                 logger=self._logger,
-                buffer_size=5,
+                buffer_size=10,
                 diff_threshold=0.5,
             )
             for name in lane_names
         }
 
+        # not used in caudri challenge. look in readme
         # predefined coeffs for crossing interference (with the direction facing left)
         left_crossing_coeffs = np.array(
             [2.25012465, 3.65954053, 2.53813171, 0.59787335]
@@ -144,6 +138,9 @@ class PathPlanningNode(SmartyNode):
         ]
 
         self.timings = []
+        # per-frame storage for debugging / analysis
+        # Each entry: {"timing": float, "pointcloud": {lane: [[x,y],...]}, "coeffs": {lane: [c0,c1,...]}}
+        self.frame_records = []
 
     def receive_crossing_state(self, msg):
         """
@@ -192,12 +189,37 @@ class PathPlanningNode(SmartyNode):
 
         crossing_state = self.crossing_state
 
-        fit_start = time.time()
+        # serialize lanes now to capture the point cloud as seen by the regressor
+        serialized_map = {}
+        for lane_name, _, _ in self.lanes:
+            lane_msg = getattr(result, lane_name)
+            serialized_map[lane_name] = serialize_lane(lane_msg)["points"]
+
+        fit_start = time.time()  # timing to read performance
 
         coeffs_list = self.fit_all_lanes(result, crossing_state)
 
+        # save timing
         fit_end = time.time()
-        self.timings.append(fit_end - fit_start)
+        frame_timing = fit_end - fit_start
+        self.timings.append(frame_timing)
+
+        # store per-frame record (convert numpy arrays to lists for JSON compatibility)
+        coeffs_map = {}
+        for lane_name in coeffs_list:
+            coeffs = coeffs_list[lane_name]
+            try:
+                coeffs_map[lane_name] = np.array(coeffs).tolist()
+            except Exception:
+                coeffs_map[lane_name] = []
+
+        self.frame_records.append(
+            {
+                "timing": frame_timing,
+                "pointcloud": serialized_map,
+                "coeffs": coeffs_map,
+            }
+        )
 
         if self._debug:
             for lane_name, publisher, color in self.lanes:
@@ -236,8 +258,7 @@ class PathPlanningNode(SmartyNode):
 
     def fit_all_lanes(self, lane_result, crossing_state):
         """
-        Following the "All in one" principle, where all lanes are combined to one and then fitted as a single polynomial.
-        After that, they are seperated again.
+        Go through all lanes and fit them.
 
         Args:
             lane_result (LaneDetectionResult): Result of lane detection topic.
@@ -261,10 +282,12 @@ class PathPlanningNode(SmartyNode):
             lane_name for lane_name, coeffs in coeffs_list.items() if len(coeffs) == 0
         ]
 
+        # If all lanes are empty, we need to handle this case separately
         if len(empty_lanes) == 3:
             empty_lanes.clear()
 
             if crossing_state == 0:
+                # using last result from buffer if available, otherwise use straight paths
                 self._logger.warning("No lanes found! Using last result.")
                 coeffs_list["center"] = (
                     self.lane_filters["center"].buffer[-1]
@@ -295,6 +318,8 @@ class PathPlanningNode(SmartyNode):
 
                     for lane_name in ["left", "center", "right"]:
                         coeffs_list[lane_name][0] += 0.7
+
+        # Handle cases where some lanes are missing by simulating them based on the detected lanes
 
         if "left" in empty_lanes:
             self._logger.debug("Left lane missing, simulating...")
@@ -327,70 +352,6 @@ class PathPlanningNode(SmartyNode):
                 coeffs_list["center"] = coeffs_list["right"].copy()
                 coeffs_list["center"][0] += 0.7
             self.lane_filters["center"].update_buffer(coeffs_list["center"])
-
-        return coeffs_list
-
-    def fit_lanes_as_one(self, lane_result, crossing_state):
-        """
-        Following the "All in one" principle, where all lanes are combined to one and then fitted as a single polynomial.
-        After that, they are seperated again.
-
-        Args:
-            lane_result (LaneDetectionResult): Result of lane detection topic.
-            crossing_state (int): Passed to the lane fitting process to adjust it in case of crossing situations.
-
-        Returns:
-            coeffs: Dictionary containing the coefficients for left, center and right lane. Each entry is a list of polynomial coefficients.
-        """
-        coeffs_list = {"left": [], "center": [], "right": []}
-
-        coordinates = []
-        outer_limit = 0.95
-
-        for lane_name, publisher, color in self.lanes:
-            lane = getattr(lane_result, lane_name)
-            serialized_lane = serialize_lane(lane)
-
-            if lane.detected:
-                if lane_name == "left":
-                    serialized_lane["points"] = [
-                        [point[0], point[1] - 0.7]
-                        for point in serialized_lane["points"]
-                        if -outer_limit < point[1] < outer_limit
-                    ]
-                elif lane_name == "right":
-                    serialized_lane["points"] = [
-                        [point[0], point[1] + 0.7]
-                        for point in serialized_lane["points"]
-                        if -outer_limit < point[1] < outer_limit
-                    ]
-
-                elif lane_name == "center":
-                    serialized_lane["points"] = [
-                        [point[0], point[1]]
-                        for point in serialized_lane["points"]
-                        if -outer_limit < point[1] < outer_limit
-                    ]
-
-                coordinates.extend(serialized_lane["points"])
-
-        coeffs = self.lane_filters["left"].fit(coordinates, crossing_state)
-
-        if coeffs is None or len(coeffs) == 0:
-            self._logger.warning("No lanes found! Using last result.")
-            coeffs = (
-                self.lane_filters["left"].buffer[-1]
-                if len(self.lane_filters["left"].buffer) > 0
-                else np.array([0.0, 0.0, 0.0, 0.0])
-            )
-
-        coeffs_list["center"] = coeffs
-
-        coeffs_list["left"] = coeffs.copy()
-        coeffs_list["left"][0] += 0.7
-
-        coeffs_list["right"] = coeffs.copy()
-        coeffs_list["right"][0] -= 0.7
 
         return coeffs_list
 
@@ -444,7 +405,7 @@ class PathPlanningNode(SmartyNode):
 
     def empty_marker_topic(self, publisher):
         """
-        Publishes an empty marker to clear the topic.
+        Publishes an empty marker to clear the topic. Otherwise RViz will keep the last marker on screen.
 
         Arguments:
             publisher -- ROS publisher to use.
@@ -470,6 +431,31 @@ class PathPlanningNode(SmartyNode):
                 self._logger.error(
                     f"Average trials for {lane_filter.lane}: {np.mean(lane_filter.trials):.2f}"
                 )
+        # If we have per-frame records, save them to a JSON file and clear buffers
+        if getattr(self, "frame_records", None):
+            try:
+                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+
+                fname = f"buffer_test_10.json"
+
+                # save to current working directory
+                with open(fname, "w", encoding="utf-8") as f:
+                    json.dump(self.frame_records, f, ensure_ascii=False, indent=2)
+                self._logger.info(
+                    f"Saved frame records to {os.path.join('results', os.path.abspath(fname))}"
+                )
+            except Exception as e:
+                self._logger.error(f"Failed to save frame records: {e}")
+            finally:
+                # clear stored data
+                try:
+                    self.frame_records.clear()
+                except Exception:
+                    self.frame_records = []
+                try:
+                    self.timings.clear()
+                except Exception:
+                    self.timings = []
 
 
 def main(args=None):

@@ -18,8 +18,12 @@ class LaneFilterBase:
         Init Filter base class.
 
         Args:
+            min_x (float): Minimum x value for lane points to consider.
+            max_x (float): Maximum x value for lane points to consider.
+            lane (str, optional): Name of the lane being filtered. Defaults to "unknown".
             buffer_size (int, optional): Size of the buffer for previous results.
             diff_threshold (float, optional): Threshold for difference to consider a new fit significantly different.
+            logger (logging.Logger, optional): Logger for debug messages.
         """
         self.lane = lane
         self.buffer_size = buffer_size
@@ -32,10 +36,10 @@ class LaneFilterBase:
 
     def fit(self, lane):
         """
-        Fit lane data. Must be implemented by subclasses.
+        Filter lane data on x and y axis to ignore noise on image border. Can be used by subclasses.
 
         Args:
-            lane (dict): Detected lane information.
+            lane (list): Detected lane points.
 
         Returns:
             list: List of points representing the fitted lane.
@@ -62,12 +66,12 @@ class LaneFilterBase:
             bool: True if the lane matches the desired direction, False otherwise.
         """
         p = np.polynomial.Polynomial(coeffs)
-        y_start = p(self.min_x)  # y at x=0
-        y_end = p(self.max_x)  # y at x=1.5
+        y_start = p(self.min_x)
+        y_end = p(self.max_x)
 
         slope = y_end - y_start  # positive is left, negative is right
 
-        threshold = 0.3
+        threshold = 0.3  # threshold for slope to consider it a turn
 
         # left turn
         if crossing_state == -1 and slope > threshold:
@@ -81,10 +85,10 @@ class LaneFilterBase:
 
     def update_buffer(self, result):
         """
-        Update the buffer with new points.
+        Update the buffer with new coefficients.
 
         Args:
-            result (dict): Newly fitted lane result. Result may be points or coeffs and intercept.
+            result (dict): Newly fitted lane result.
         """
         self.buffer.append(result)
         if len(self.buffer) > self.buffer_size:
