@@ -1,2 +1,6 @@
-numpy
+numpy<2.0
 opencv_python
+patsy
+scikit-learn
+statsmodels
+pyclothoids

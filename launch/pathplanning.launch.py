@@ -17,6 +17,11 @@ def generate_launch_description():
     debug_arg = DeclareLaunchArgument(
         "debug", default_value="false", description="Enable debug mode"
     )
+    crossing_interference_arg = DeclareLaunchArgument(
+        "crossing_interference",
+        default_value="false",
+        description="Enable crossing interference",
+    )
 
     # Define the path to the YAML configuration file
     params_file_arg = DeclareLaunchArgument(
@@ -35,8 +40,21 @@ def generate_launch_description():
         namespace="",
         name="path_planning_node",
         output="screen",
-        parameters=[config_file, {"debug": LaunchConfiguration("debug")}],
+        parameters=[
+            config_file,
+            {
+                "debug": LaunchConfiguration("debug"),
+                "crossing_interference": LaunchConfiguration("crossing_interference"),
+            },
+        ],
     )
 
     # Create and return the launch description
-    return LaunchDescription([params_file_arg, debug_arg, pathplanning_node])
+    return LaunchDescription(
+        [
+            params_file_arg,
+            debug_arg,
+            crossing_interference_arg,
+            pathplanning_node,
+        ]
+    )

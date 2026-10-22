@@ -31,6 +31,7 @@ setup(
     entry_points={
         "console_scripts": [
             f"path_planning_node = {package_name}.path_planning_node:main",
+            f"lanes_to_pointcloud_node = {package_name}.lanes_to_pointcloud_node:main",
         ],
     },
 )
