@@ -1,23 +1,21 @@
 # Copyright (c) 2025 Smart Rollerz e.V.
 # All rights reserved.
 
+import json
+import os
 import time
+from datetime import datetime
 
-import cv2
-import cv_bridge
-import geometry_msgs.msg
 import numpy as np
 import rclpy
-import sensor_msgs.msg
-import std_msgs.msg
-from camera_preprocessing.transformation.birds_eyed_view import Birdseye
-from camera_preprocessing.transformation.coordinate_transform import CoordinateTransform
-from camera_preprocessing.transformation.distortion import Distortion
+import visualization_msgs
+from geometry_msgs.msg import Point
 from lane_msgs.msg import Lane, LaneDetectionResult
-from smarty_utils.enums import Location, NodeState
 from smarty_utils.smarty_node import SmartyNode
+from std_msgs.msg import Float32MultiArray, String
+from visualization_msgs.msg import Marker
 
-from pathplanning.framework.pathplanningController import PPController
+from pathplanning.ransac import Ransac
 
 
 def serialize_lane(Lane: Lane):
@@ -32,7 +30,7 @@ def serialize_lane(Lane: Lane):
         dict -- Serialized lane information.
     """
     return {
-        "points": [[point.x, point.y, point.z] for point in Lane.points],
+        "points": [[point.x / 1000, point.y / 1000] for point in Lane.points],
         "detected": Lane.detected,
     }
 
@@ -45,233 +43,419 @@ class PathPlanningNode(SmartyNode):
         super().__init__(
             "path_planning_node",
             "pathplanning",
-            node_parameters={
-                # Subscriber topics
-                "lane_points_subscriber": "/lane_detection/lane",
-                "image_subscriber": "/camera/image/bev",
-                "remote_state_subscriber": "/remoteState",
-                "goal_lane_subscriber": "/state_machine/goal_lane",
-                # Publisher topics
-                "targetSteeringAngle_pub": "/control/steering_angle/target",
-                "path_planning_left_publisher": "/path_planning/target/left",
-                "path_planning_right_publisher": "/path_planning/target/right",
-                "ref_point_publisher": "/path_planning/target/pose",
-                "image_debug_publisher": "/path_planning/debug/image",
-                # Parameters
-                "trj_look_forward": 100,
-            },
-            subscribed_topics={
-                "lane_points_subscriber": (
-                    LaneDetectionResult,
-                    self.serialized_points,
-                    None,
-                ),
-                "image_subscriber": (sensor_msgs.msg.Image, self.debug_image, None),
-                "remote_state_subscriber": (
-                    std_msgs.msg.UInt8,
-                    self.new_remote_state,
-                    None,
-                ),
-                "goal_lane_subscriber": (
-                    std_msgs.msg.String,
-                    lambda msg: setattr(self, "_goal_lane", Location(msg.data)),
-                    None,
-                ),
-            },
-            published_topics={
-                "targetSteeringAngle_pub": (std_msgs.msg.Int16, None),
-                "path_planning_left_publisher": (geometry_msgs.msg.Vector3, None),
-                "path_planning_right_publisher": (geometry_msgs.msg.Vector3, None),
-                "ref_point_publisher": (geometry_msgs.msg.Vector3, None),
-                "image_debug_publisher": (sensor_msgs.msg.Image, None),
-            },
         )
-        self._goal_lane = Location.RIGHT
-        self.times = []
 
-        # Setup Framework & Cord Transformation
-        self.cv_bridge = cv_bridge.CvBridge()
-        self.coord_trans = CoordinateTransform()
-        self.myController = PPController(
-            self.get_parameter, debug=self._debug, logger=self.get_logger()
-        )
-        self.drive_point_ruling = None
+        self.declare_parameter("crossing_interference", False)
 
-        # Initialize transformation classes for debug image
+        # Configure logging level based on debug parameter
         if self._debug:
-            self.distortion = Distortion(self.coord_trans._calib)
-            self.birds_eyed = Birdseye(self.coord_trans._calib, self.distortion)
+            self._logger.set_level(rclpy.logging.LoggingSeverity.DEBUG)
 
-        # Log initialization
-        self.get_logger().info(
-            f"Path planning Node initialized [debug={self._debug}, trj_look_forward={self.get_parameter('trj_look_forward').value}]"
+        # best for seperated fitting
+        self.min_x = -0.25
+        self.max_x = 1.0
+
+        self.x_vals = np.linspace(
+            -1.0, 1.0, num=50
+        )  # only used on debug mode to draw trajectory in rviz
+
+        lane_names = ["left", "center", "right"]
+        self.lane_filters = {
+            name: Ransac(
+                self.min_x,
+                self.max_x,
+                name,
+                logger=self._logger,
+                buffer_size=10,
+                diff_threshold=0.5,
+            )
+            for name in lane_names
+        }
+
+        # not used in caudri challenge. look in readme
+        # predefined coeffs for crossing interference (with the direction facing left)
+        left_crossing_coeffs = np.array(
+            [2.25012465, 3.65954053, 2.53813171, 0.59787335]
+        )
+        center_crossing_coeffs = np.array(
+            [0.52706025, 0.98502997, 1.28259767, 0.59787335]
+        )
+        right_crossing_coeffs = np.array(
+            [-0.30641228, 0.12918641, -0.33166038, 0.59787335]
+        )
+        self.crossing_coeffs_map = {
+            "left": left_crossing_coeffs,
+            "center": center_crossing_coeffs,
+            "right": right_crossing_coeffs,
+        }
+
+        self.lane_detection_subscription = self.create_subscription(
+            LaneDetectionResult,
+            "/lane_detection/lane",
+            self.receive_lane_detection_result,
+            10,
         )
 
-    def _reset(self) -> None:
-        """Reset the node."""
-        self.myController.reset()
-
-    def serialized_points(self, LaneDetectionResult: LaneDetectionResult):
-        """
-        Serialize lane detection results and perform further processing.
-
-        Args:
-            LaneDetectionResult (LaneDetectionResult): Detected lane information.
-        """
-        start_time = time.time()
-
-        self.left_coord = []
-        self.center_coord = []
-        self.right_coord = []
-
-        if self._state == NodeState.ACTIVE:
-            self.serialized_lane_result = {
-                "left": serialize_lane(LaneDetectionResult.left),
-                "center": serialize_lane(LaneDetectionResult.center),
-                "right": serialize_lane(LaneDetectionResult.right),
-            }
-
-            for lane_type in ["left", "center", "right"]:
-                points = self.serialized_lane_result[lane_type]["points"]
-                setattr(self, f"{lane_type}_coord", points)
-
-            (
-                self.left_lane_coefficients,
-                self.right_lane_coefficients,
-            ) = self.myController.start_main_process(
-                left_lane_points=self.left_coord,
-                center_lane_points=self.center_coord,
-                right_lane_points=self.right_coord,
+        self.crossing_state = 0
+        if self.get_parameter("crossing_interference").get_parameter_value().bool_value:
+            self.crossing_state_subscription = self.create_subscription(
+                String,
+                "/state_machine/path_planning/direction",
+                self.receive_crossing_state,
+                10,
             )
+        self.crossing_state_timer = None  # stored to interrupt timer when needed
 
-            for lane_type, lane_coefficients in zip(
-                ["left", "right"],
-                [self.left_lane_coefficients, self.right_lane_coefficients],
-            ):
-                if self._state == NodeState.ACTIVE and any(lane_coefficients):
-                    getattr(self, f"path_planning_{lane_type}_publisher").publish(
-                        geometry_msgs.msg.Vector3(
-                            x=lane_coefficients[0],
-                            y=lane_coefficients[1],
-                            z=lane_coefficients[2],
-                        )
-                    )
-            if (
-                self._state == NodeState.ACTIVE
-                and any(self.left_lane_coefficients)
-                and any(self.right_lane_coefficients)
-            ):
-                self.calculate_ref_point()
-
-            func_time = (
-                time.time() - start_time
-            ) * 1000  # Calculate the time in milliseconds
-            self.times.append(func_time)
-            print(f"{sum(self.times) / len(self.times)} ms")
-            print("---------------------")
-
-    def calculate_ref_point(self):
-        """Calculate the reference point for the vehicle's trajectory based on its current state."""
-        if self._state != NodeState.ACTIVE:
-            if self._debug:
-                self.get_logger().info("Node not active, skipping ...")
-            return
-
-        lane_coefficients = (
-            self.left_lane_coefficients
-            if self._goal_lane == Location.LEFT
-            else self.right_lane_coefficients
+        # publisher for debug purposes in RViz
+        self.left_lane_debug_publisher = self.create_publisher(
+            visualization_msgs.msg.Marker, "/path_planning/debug/left", 10
+        )
+        self.center_lane_debug_publisher = self.create_publisher(
+            visualization_msgs.msg.Marker, "/path_planning/debug/center", 10
+        )
+        self.right_lane_debug_publisher = self.create_publisher(
+            visualization_msgs.msg.Marker, "/path_planning/debug/right", 10
         )
 
-        if any(lane_coefficients):
-            ref_x, ref_y, theta = self.myController.ref_point_controller(
-                lane_coefficients
-            )
-            self.drive_point_ruling = (int(ref_x), int(ref_y))
-            print(f"ref_x: {ref_x}, ref_y: {ref_y}, theta: {theta}")
-            # ref_x, ref_y, _ = self.coord_trans.bird_to_world([[ref_x, ref_y]])[0]
-            print(f"x={ref_x / 1000}, y={ ref_y  / 1000}, theta={theta}")
+        self.left_path_debug_publisher = self.create_publisher(
+            visualization_msgs.msg.Marker, "/path_planning/debug/left_path", 10
+        )
+        self.right_path_debug_publisher = self.create_publisher(
+            visualization_msgs.msg.Marker, "/path_planning/debug/right_path", 10
+        )
 
-            if theta <= 0.3:
-                theta = theta / 4
-                print(theta)
+        self.left_path_publisher = self.create_publisher(
+            Float32MultiArray, "/path_planning/target/left", 10
+        )
+        self.right_path_publisher = self.create_publisher(
+            Float32MultiArray, "/path_planning/target/right", 10
+        )
 
-            self.ref_point_publisher.publish(
-                geometry_msgs.msg.Vector3(y=ref_y / 1000, x=ref_x / 1000, z=theta)
-            )
+        self.lanes = [
+            ("left", self.left_lane_debug_publisher, (255, 0, 0)),
+            ("center", self.center_lane_debug_publisher, (0, 255, 0)),
+            ("right", self.right_lane_debug_publisher, (0, 0, 255)),
+        ]
 
-    def debug_image(self, image_msg: sensor_msgs.msg.Image):
+        self.timings = []
+        # per-frame storage for debugging / analysis
+        # Each entry: {"timing": float, "pointcloud": {lane: [[x,y],...]}, "coeffs": {lane: [c0,c1,...]}}
+        self.frame_records = []
+
+    def receive_crossing_state(self, msg):
         """
-        Processes the image message for debugging purposes and publishes the resulting debug image.
+        Receives the crossing state from the state machine.
 
         Args:
-            image_msg (sensor_msgs.msg.Image): The image message to be processed.
+            msg (std_msgs.msg.String): Message containing the crossing state ("left", "right", "none").
         """
-        # Load parameters (to be persistent)
-        is_active = self._state == NodeState.ACTIVE
-        debug = self._debug
+        state_str = msg.data.lower()
+        if state_str == "straight":
+            # start timer, if state was not straight in the last frame to keep this state for a short time
+            if self.crossing_state != 0 and self.crossing_state_timer is None:
+                self._logger.debug("Starting crossing state timer...")
+                self.crossing_state_timer = self.create_timer(
+                    4.0, self.reset_crossing_state
+                )
+            elif self.crossing_state_timer is None:
+                # Only set to 0 immediately if there is no active timer
+                self.crossing_state = 0
+        else:
+            # interrupt timer if state changes to crossing again
+            if self.crossing_state_timer is not None:
+                self.crossing_state_timer.cancel()
+                self.crossing_state_timer = None
 
-        if not is_active:
-            self.get_logger().info("Node inactive debug image not rendered")
-            return
+            if state_str == "left":
+                self.crossing_state = 1
+            elif state_str == "right":
+                self.crossing_state = 1
 
-        debug_image = self.cv_bridge.imgmsg_to_cv2(image_msg, desired_encoding="8UC1")
-        debug_image = cv2.cvtColor(debug_image, cv2.COLOR_GRAY2RGB)
+    def reset_crossing_state(self):
+        """Resets the crossing state to 0 after a timer expires."""
+        self._logger.debug("Resetting crossing state to 0.")
+        self.crossing_state_timer.cancel()
+        self.crossing_state_timer = None
+        self.crossing_state = 0
 
-        if (
-            is_active
-            and hasattr(self, "serialized_lane_result")
-            and self.serialized_lane_result
-            and debug
-        ):
-            for lane_type in ["left", "center", "right"]:
-                try:
-                    for coord in self.coord_trans.world_to_bird(
-                        self.serialized_lane_result[lane_type]["points"]
-                    ).astype(int):
-                        color = (
-                            (255, 0, 0)
-                            if lane_type == "left"
-                            else (0, 255, 0)
-                            if lane_type == "center"
-                            else (0, 0, 255)
-                        )
-                        debug_image = cv2.circle(debug_image, coord, 6, color, -1)
-                except Exception as e:
-                    self._logger.error(f"Error drawing lane points: {e}")
-
-            for lane_coefficients in [
-                self.right_lane_coefficients,
-                self.left_lane_coefficients,
-            ]:
-                for coord in self.myController.draw_trajectory(
-                    lane_coefficients, lambda x: self.coord_trans.world_to_bird(x)
-                ):
-                    cv2.circle(
-                        debug_image,
-                        (int(coord[0]), int(coord[1])),
-                        2,
-                        (255, 255, 0),
-                        -1,
-                    )
-
-            if self.drive_point_ruling is not None:
-                p = np.array([[*self.drive_point_ruling, 0]])
-                p = self.coord_trans.world_to_bird(p)[0]
-                cv2.circle(debug_image, (int(p[0]), int(p[1])), 5, (255, 255, 255), -1)
-
-            self.image_debug_publisher.publish(
-                self.cv_bridge.cv2_to_imgmsg(debug_image, encoding="rgb8")
-            )
-
-    def new_remote_state(self, remote_state: std_msgs.msg.UInt8):
+    def receive_lane_detection_result(self, result: LaneDetectionResult):
         """
-        Sets the remote state of the system.
+        Process serialized lane points.
 
         Arguments:
-            remote_state -- The new remote state.
+            result -- Lane detection result message.
         """
-        self.myController.reset_RC_MODE(remote_state.data)
+        self._logger.debug("Received!")
+
+        crossing_state = self.crossing_state
+
+        # serialize lanes now to capture the point cloud as seen by the regressor
+        serialized_map = {}
+        for lane_name, _, _ in self.lanes:
+            lane_msg = getattr(result, lane_name)
+            serialized_map[lane_name] = serialize_lane(lane_msg)["points"]
+
+        fit_start = time.time()  # timing to read performance
+
+        coeffs_list = self.fit_all_lanes(result, crossing_state)
+
+        # save timing
+        fit_end = time.time()
+        frame_timing = fit_end - fit_start
+        self.timings.append(frame_timing)
+
+        # store per-frame record (convert numpy arrays to lists for JSON compatibility)
+        coeffs_map = {}
+        for lane_name in coeffs_list:
+            coeffs = coeffs_list[lane_name]
+            try:
+                coeffs_map[lane_name] = np.array(coeffs).tolist()
+            except Exception:
+                coeffs_map[lane_name] = []
+
+        self.frame_records.append(
+            {
+                "timing": frame_timing,
+                "pointcloud": serialized_map,
+                "coeffs": coeffs_map,
+            }
+        )
+
+        if self._debug:
+            for lane_name, publisher, color in self.lanes:
+                coeffs = coeffs_list[lane_name]
+                points = self.sample_points_from_poly(coeffs, self.x_vals)
+                self.publish_list_of_points(points, publisher, color)
+
+        left_coeffs = []
+        right_coeffs = []
+
+        # Calculate midlines between left-center and center-right
+        left_coeffs = (coeffs_list["left"] + coeffs_list["center"]) / 2
+        if self._debug:
+            self.publish_list_of_points(
+                self.sample_points_from_poly(left_coeffs, self.x_vals),
+                self.left_path_debug_publisher,
+                color=(255, 255, 255),
+            )
+
+        left_path_msg = Float32MultiArray()
+        left_path_msg.data = left_coeffs[::-1].tolist()
+        self.left_path_publisher.publish(left_path_msg)
+
+        right_coeffs = (coeffs_list["center"] + coeffs_list["right"]) / 2
+
+        if self._debug:
+            self.publish_list_of_points(
+                self.sample_points_from_poly(right_coeffs, self.x_vals),
+                self.right_path_debug_publisher,
+                color=(255, 255, 255),
+            )
+
+        right_path_msg = Float32MultiArray()
+        right_path_msg.data = right_coeffs[::-1].tolist()
+        self.right_path_publisher.publish(right_path_msg)
+
+    def fit_all_lanes(self, lane_result, crossing_state):
+        """
+        Go through all lanes and fit them.
+
+        Args:
+            lane_result (LaneDetectionResult): Result of lane detection topic.
+            crossing_state (int): Passed to the lane fitting process to adjust it in case of crossing situations.
+
+        Returns:
+            coeffs: Dictionary containing the coefficients for left, center and right lane. Each entry is a list of polynomial coefficients.
+        """
+        coeffs_list = {"left": [], "center": [], "right": []}
+
+        for lane_name, publisher, color in self.lanes:
+            lane = getattr(lane_result, lane_name)
+            serialized_lane = serialize_lane(lane)
+
+            if lane.detected:
+                coeffs_list[lane_name] = self.lane_filters[lane_name].fit(
+                    serialized_lane["points"], crossing_state
+                )
+
+        empty_lanes = [
+            lane_name for lane_name, coeffs in coeffs_list.items() if len(coeffs) == 0
+        ]
+
+        # If all lanes are empty, we need to handle this case separately
+        if len(empty_lanes) == 3:
+            empty_lanes.clear()
+
+            if crossing_state == 0:
+                # using last result from buffer if available, otherwise use straight paths
+                self._logger.warning("No lanes found! Using last result.")
+                coeffs_list["center"] = (
+                    self.lane_filters["center"].buffer[-1]
+                    if len(self.lane_filters["center"].buffer) > 0
+                    else np.array([0.0, 0.0, 0.0, 0.0])
+                )
+                coeffs_list["left"] = (
+                    self.lane_filters["left"].buffer[-1]
+                    if len(self.lane_filters["left"].buffer) > 0
+                    else np.array([0.7, 0.0, 0.0, 0.0])
+                )
+                coeffs_list["right"] = (
+                    self.lane_filters["right"].buffer[-1]
+                    if len(self.lane_filters["right"].buffer) > 0
+                    else np.array([-0.7, 0.0, 0.0, 0.0])
+                )
+            else:
+                self._logger.warning(
+                    "No lane pointing to correct crossing direction! Using predefined"
+                )
+                if crossing_state == -1:
+                    coeffs_list = self.crossing_coeffs_map
+                else:
+                    # swap left and right and invert all coeffs, so lanes face right
+                    coeffs_list["left"] = -self.crossing_coeffs_map["right"]
+                    coeffs_list["center"] = -self.crossing_coeffs_map["center"]
+                    coeffs_list["right"] = -self.crossing_coeffs_map["left"]
+
+                    for lane_name in ["left", "center", "right"]:
+                        coeffs_list[lane_name][0] += 0.7
+
+        # Handle cases where some lanes are missing by simulating them based on the detected lanes
+
+        if "left" in empty_lanes:
+            self._logger.debug("Left lane missing, simulating...")
+            if "center" not in empty_lanes:
+                coeffs_list["left"] = coeffs_list["center"].copy()
+                coeffs_list["left"][0] += 0.7
+            elif "right" not in empty_lanes:
+                coeffs_list["left"] = coeffs_list["right"].copy()
+                coeffs_list["left"][0] += 1.4
+            self.lane_filters["left"].update_buffer(coeffs_list["left"])
+
+        if "right" in empty_lanes:
+            self._logger.debug("Right lane missing, simulating...")
+            if "center" not in empty_lanes:
+                coeffs_list["right"] = coeffs_list["center"].copy()
+                coeffs_list["right"][0] -= 0.7
+            elif "left" not in empty_lanes:
+                coeffs_list["right"] = coeffs_list["left"].copy()
+                coeffs_list["right"][0] -= 1.4
+            self.lane_filters["right"].update_buffer(coeffs_list["right"])
+
+        if "center" in empty_lanes:
+            self._logger.debug("Center lane missing, simulating...")
+            if "left" not in empty_lanes and "right" not in empty_lanes:
+                coeffs_list["center"] = (coeffs_list["left"] + coeffs_list["right"]) / 2
+            elif "left" not in empty_lanes:
+                coeffs_list["center"] = coeffs_list["left"].copy()
+                coeffs_list["center"][0] -= 0.7
+            elif "right" not in empty_lanes:
+                coeffs_list["center"] = coeffs_list["right"].copy()
+                coeffs_list["center"][0] += 0.7
+            self.lane_filters["center"].update_buffer(coeffs_list["center"])
+
+        return coeffs_list
+
+    def sample_points_from_poly(self, coeffs, x_vals):
+        """
+        Creates sample points along a polynomial curve with given coeffs.
+
+        Args:
+            coeffs (array-like): Coefficients of poly.
+
+        Returns:
+            list: List of points representing the fitted lane.
+        """
+        y_vals = np.polyval(
+            coeffs[::-1], x_vals
+        )  # change coeff order from low-high to high-low
+        points = list(map(list, zip(x_vals, y_vals)))
+
+        return points
+
+    def publish_list_of_points(self, points, publisher, color=(1.0, 1.0, 1.0)):
+        """
+        Publishes a list of points as a line strip marker.
+
+        Arguments:
+            points -- List of points to publish. Format: [[x1, y1], [x2, y2], ...].
+            publisher -- ROS publisher to use.
+            color -- Tuple representing the RGB color of the line (going from 0 - 255).
+        """
+        marker = Marker()
+        marker.header.frame_id = "map"
+        marker.header.stamp = self.get_clock().now().to_msg()
+        marker.ns = "lane_polynom"
+        marker.id = 0
+        marker.type = Marker.LINE_STRIP
+        marker.action = Marker.ADD
+        marker.scale.x = 0.03  # Line width
+        marker.color.a = 1.0
+        marker.color.r = color[0] / 255
+        marker.color.g = color[1] / 255
+        marker.color.b = color[2] / 255
+        marker.pose.orientation.w = 1.0
+
+        for point in points:
+            p = Point()
+            p.x = point[0]
+            p.y = point[1]
+            p.z = 0.0
+            marker.points.append(p)
+        publisher.publish(marker)
+
+    def empty_marker_topic(self, publisher):
+        """
+        Publishes an empty marker to clear the topic. Otherwise RViz will keep the last marker on screen.
+
+        Arguments:
+            publisher -- ROS publisher to use.
+        """
+        marker = Marker()
+        marker.header.frame_id = "map"
+        marker.header.stamp = self.get_clock().now().to_msg()
+        marker.ns = "lane_polynom"
+        marker.id = 0
+        marker.action = Marker.DELETE
+        publisher.publish(marker)
+
+    def log_average_timing(self):
+        """Logs the average timing of the fitting process."""
+        if self.timings:
+            avg_time = sum(self.timings) / len(self.timings)
+            self._logger.error(f"Average lane fitting time: {avg_time:.4f} seconds")
+            self._logger.error(
+                f"Median lane fitting time: {np.median(self.timings):.4f} seconds"
+            )
+
+            for lane_filter in self.lane_filters.values():
+                self._logger.error(
+                    f"Average trials for {lane_filter.lane}: {np.mean(lane_filter.trials):.2f}"
+                )
+        # If we have per-frame records, save them to a JSON file and clear buffers
+        if getattr(self, "frame_records", None):
+            try:
+                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+
+                fname = f"buffer_test_10.json"
+
+                # save to current working directory
+                with open(fname, "w", encoding="utf-8") as f:
+                    json.dump(self.frame_records, f, ensure_ascii=False, indent=2)
+                self._logger.info(
+                    f"Saved frame records to {os.path.join('results', os.path.abspath(fname))}"
+                )
+            except Exception as e:
+                self._logger.error(f"Failed to save frame records: {e}")
+            finally:
+                # clear stored data
+                try:
+                    self.frame_records.clear()
+                except Exception:
+                    self.frame_records = []
+                try:
+                    self.timings.clear()
+                except Exception:
+                    self.timings = []
 
 
 def main(args=None):
@@ -289,6 +473,7 @@ def main(args=None):
     except KeyboardInterrupt:
         pass
     finally:
+        node.log_average_timing()  # comment out if timing not needed
         node.destroy_node()
         rclpy.shutdown()
 
