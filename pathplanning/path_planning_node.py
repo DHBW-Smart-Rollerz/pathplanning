@@ -81,7 +81,7 @@ class PathPlanningNode(SmartyNode):
             [0.52706025, 0.98502997, 1.28259767, 0.59787335]
         )
         right_crossing_coeffs = np.array(
-            [-0.30641228, 0.12918641, -0.33166038, 0.59787335]
+            [-0.15641228, 0.12918641, -0.33166038, 0.59787335]
         )
         self.crossing_coeffs_map = {
             "left": left_crossing_coeffs,
@@ -155,7 +155,7 @@ class PathPlanningNode(SmartyNode):
             if self.crossing_state != 0 and self.crossing_state_timer is None:
                 self._logger.debug("Starting crossing state timer...")
                 self.crossing_state_timer = self.create_timer(
-                    4.0, self.reset_crossing_state
+                    6.0, self.reset_crossing_state
                 )
             elif self.crossing_state_timer is None:
                 # Only set to 0 immediately if there is no active timer
@@ -167,9 +167,9 @@ class PathPlanningNode(SmartyNode):
                 self.crossing_state_timer = None
 
             if state_str == "left":
-                self.crossing_state = 1
+                self.crossing_state = -1
             elif state_str == "right":
-                self.crossing_state = 1
+                self.crossing_state = -1
 
     def reset_crossing_state(self):
         """Resets the crossing state to 0 after a timer expires."""
